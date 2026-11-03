@@ -1,0 +1,125 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>となり</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500&family=IBM+Plex+Sans+JP:wght@400;500;600;700&display=swap">
+<link rel="stylesheet" href="/web/app.css">
+</head>
+<body>
+<div id="app">
+  <aside id="rail" aria-label="話題">
+    <header class="brand">
+      <span class="logo" aria-hidden="true"><i></i><i></i><i></i><i></i><b></b></span>
+      <span class="brand-t">となり<small>声で回す学び</small></span>
+    </header>
+    <button id="newSession" class="new">＋ 新しい話題<kbd data-key="new">⌘N</kbd></button>
+    <nav id="sessions"></nav>
+    <footer class="rail-foot">
+      <p id="setupWarn" class="setup-warn" hidden></p>
+      <p id="scribeInfo" class="tiny"></p>
+      <p id="counts" class="tiny"></p>
+      <button id="openSettings" class="ghost small settings-btn">設定を開く</button>
+    </footer>
+  </aside>
+
+  <main id="main" hidden>
+    <header id="topbar">
+      <input id="title" aria-label="話題の名前" spellcheck="false">
+      <div id="detail" class="seg" role="group" aria-label="答えの詳しさ" title="答えの詳しさ（自動は、確かめの問いに答えられた概念ほど短くします）">
+        <button data-detail="auto">自動</button><button data-detail="short">短く</button><button data-detail="long">詳しく</button>
+      </div>
+      <span id="modelChip" class="chip mono" title="先生役のモデル"></span>
+      <button id="archive" class="ghost small" title="この話題を片づける（記録は残ります）">片づける</button>
+    </header>
+    <div id="resume" hidden></div>
+    <div id="retcheck" hidden></div>
+    <section id="thread" aria-live="polite"></section>
+    <footer id="composer">
+      <button id="talk" data-phase="idle" aria-label="話す・送る（Space）">
+        <span class="talk-dot" aria-hidden="true"></span><span id="talkLabel">話す</span><kbd data-key="talk">Space</kbd>
+      </button>
+      <div class="rec-side">
+        <div id="meter" aria-hidden="true"><i></i></div>
+        <span id="recTime" class="mono">0:00</span>
+        <span id="recHint" class="tiny"></span>
+      </div>
+      <textarea id="typed" rows="1" placeholder="打って送る（Enter）"></textarea>
+      <button id="nextBtn" class="next" title="答えの届いた話題へ">次の話題へ<span id="nextCount"></span><kbd data-key="next">⌘]</kbd></button>
+    </footer>
+  </main>
+
+  <aside id="side" aria-label="地図">
+    <div class="tabs" role="tablist">
+      <button class="tab on" data-tab="ego" role="tab">位置</button>
+      <button class="tab" data-tab="list" role="tab">この話題</button>
+      <button class="tab" data-tab="all" role="tab">全部</button>
+    </div>
+    <div id="sidePane"></div>
+  </aside>
+</div>
+
+<section id="empty" hidden>
+  <div class="empty-in">
+    <h1>話題を回しながら、声で学ぶ</h1>
+    <p>話題Aで聞いて、答えを待つあいだに話題Bへ。答えが届いた話題には印が付きます。答えは文と図で返り、説明の中心の概念を、上に上位概念、下に下位概念、左右に対の概念、斜めに関係する概念を置いた図で見せます。</p>
+    <ol class="steps">
+      <li><kbd data-key="new">⌘N</kbd><span>新しい話題を作り、そのまま話し始める</span></li>
+      <li><kbd data-key="talk">Space</kbd><span>話し終えたらもう一度押して送る（<kbd data-key="cancel">Esc</kbd> でやめる）</span></li>
+      <li><kbd data-key="next">⌘]</kbd><span>答えの届いた話題へ移る（<kbd data-key="open1">⌘1</kbd>〜<kbd data-key="open9">⌘9</kbd> で直接）</span></li>
+    </ol>
+    <p id="emptyWarn" class="setup-warn" hidden></p>
+    <button class="primary big" id="emptyStart">最初の話題を始める</button>
+  </div>
+</section>
+<dialog id="settings" aria-labelledby="settingsTitle">
+  <header class="set-head"><h2 id="settingsTitle">設定</h2><button class="ghost small" id="closeSettings">閉じる</button></header>
+  <section class="set-sec">
+    <h3>この PC の準備</h3>
+    <div id="healthList" class="health"><p class="tiny">確かめています</p></div>
+    <p id="healthWhere" class="tiny"></p>
+    <button class="ghost small" id="healthAgain">確かめ直す</button>
+  </section>
+  <section class="set-sec">
+    <h3>キー</h3>
+    <p class="tiny">変えていない操作は、この PC の既定（Mac は ⌘、ほかは Alt）を使います。「変える」を押してから、使いたいキーを押してください。</p>
+    <table class="keys"><tbody id="keyRows"></tbody></table>
+    <p id="keyMsg" class="tiny" role="status"></p>
+    <button class="ghost small" id="keysReset">すべて既定に戻す</button>
+  </section>
+  <section class="set-sec">
+    <h3>聞き取り</h3>
+    <label class="pref"><span>方式</span>
+      <select id="scribeMode" aria-label="聞き取りの方式">
+        <option value="always">精度優先（毎回 Scribe）</option>
+        <option value="auto">自動（口座の残りを見る）</option>
+        <option value="off">端末だけ（Apple）</option>
+      </select>
+    </label>
+    <label class="pref"><span>ElevenLabs の鍵（Scribe を使うときだけ。使うと録音が ElevenLabs に送られます）</span>
+      <span class="key-row"><input id="elevenKey" type="password" autocomplete="off" spellcheck="false" placeholder="鍵を貼る"><button class="ghost small" id="elevenSave">鍵を保存する</button><button class="ghost small" id="elevenClear">鍵を消す</button></span>
+    </label>
+    <p id="elevenMsg" class="tiny" role="status"></p>
+  </section>
+  <section class="set-sec">
+    <h3>先生役</h3>
+    <label class="pref"><span>モデル（新しい話題から使います。いまある話題は今のまま）</span>
+      <select id="tutorModel" aria-label="先生役のモデル"><option value="">既定</option><option value="opus">opus</option><option value="sonnet">sonnet（opus が使えないプランのとき）</option></select>
+    </label>
+  </section>
+  <section class="set-sec">
+    <h3>読み方</h3>
+    <label class="pref chk"><input type="checkbox" id="autoNext"><span>送ったら答えの届いた話題へ移る</span></label>
+    <label class="pref chk"><input type="checkbox" id="predictPref"><span>答えを読む前に予想を一言話す</span></label>
+  </section>
+</dialog>
+<div id="toast" role="status"></div>
+<script src="/web/md.js"></script>
+<script src="/web/map.js"></script>
+<script src="/web/views.js"></script>
+<script src="/web/app.js"></script>
+<script>document.getElementById("emptyStart").addEventListener("click", () => document.getElementById("newSession").click());</script>
+</body>
+</html>

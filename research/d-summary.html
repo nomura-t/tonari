@@ -1,0 +1,321 @@
+<title>人が理解する仕組み</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<!-- house-style: seimitsu | 6 調査のまとめ（人が理解する仕組みと、となりに活かせること） -->
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans+JP:wght@400;500;600;700&display=swap">
+<style>
+/* house-style:begin seimitsu */
+/* 精密・白 — トークン。明暗の3状態（端末の設定・明を選択・暗を選択）に対応 */
+:root {
+  --bg: oklch(0.995 0.002 258);
+  --surface: oklch(0.975 0.004 258);
+  --surface-2: oklch(0.950 0.006 258);
+  --line: oklch(0.905 0.008 258);
+  --edge: oklch(0.620 0.012 258);
+  --ink: oklch(0.215 0.015 258);
+  --ink-2: oklch(0.475 0.016 258);
+  --link: oklch(0.500 0.170 258);
+  --accent: oklch(0.215 0.015 258);
+  --accent-ink: oklch(0.990 0.002 258);
+  --accent-soft: oklch(0.950 0.030 258);
+  --ok-ink: oklch(0.450 0.110 150);
+  --ok-soft: oklch(0.950 0.035 150);
+  --warn-ink: oklch(0.470 0.100 70);
+  --warn-soft: oklch(0.950 0.050 85);
+  --bad-ink: oklch(0.480 0.150 25);
+  --bad-soft: oklch(0.950 0.030 25);
+  --shadow: 0 0 0 1px #dce0e5, 0 1px 1px rgba(0,0,0,0.03), 0 4px 8px -4px rgba(0,0,0,0.05), 0 16px 24px -8px rgba(0,0,0,0.07);
+  --font-body: "Geist", "IBM Plex Sans JP", "Hiragino Sans", "Yu Gothic", sans-serif;
+  --font-display: "Geist", "IBM Plex Sans JP", "Hiragino Sans", "Yu Gothic", sans-serif;
+  --font-num: "Geist Mono", "IBM Plex Mono", ui-monospace, monospace;
+  --display-weight: 600;
+  --display-track: -0.02em;
+  --body-track: 0;
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+  --space-7: 48px;
+  --space-8: 72px;
+  --r-sm: 6px;
+  --r-md: 12px;
+  --r-lg: 16px;
+  --r-btn: 6px;
+  --r-pill: 999px;
+  --ease: cubic-bezier(.4, 0, .2, 1);
+  --dur: .15s;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: oklch(0.165 0.006 258);
+    --surface: oklch(0.200 0.008 258);
+    --surface-2: oklch(0.240 0.010 258);
+    --line: oklch(0.310 0.012 258);
+    --edge: oklch(0.500 0.012 258);
+    --ink: oklch(0.965 0.004 258);
+    --ink-2: oklch(0.725 0.010 258);
+    --link: oklch(0.740 0.120 258);
+    --accent: oklch(0.965 0.004 258);
+    --accent-ink: oklch(0.180 0.010 258);
+    --accent-soft: oklch(0.280 0.050 258);
+    --ok-ink: oklch(0.820 0.110 150);
+    --ok-soft: oklch(0.300 0.050 150);
+    --warn-ink: oklch(0.850 0.110 85);
+    --warn-soft: oklch(0.310 0.050 75);
+    --bad-ink: oklch(0.800 0.100 25);
+    --bad-soft: oklch(0.310 0.060 25);
+    --shadow: 0 0 0 1px #2d3137, 0 8px 24px -8px rgba(0,0,0,0.5);
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: oklch(0.165 0.006 258);
+  --surface: oklch(0.200 0.008 258);
+  --surface-2: oklch(0.240 0.010 258);
+  --line: oklch(0.310 0.012 258);
+  --edge: oklch(0.500 0.012 258);
+  --ink: oklch(0.965 0.004 258);
+  --ink-2: oklch(0.725 0.010 258);
+  --link: oklch(0.740 0.120 258);
+  --accent: oklch(0.965 0.004 258);
+  --accent-ink: oklch(0.180 0.010 258);
+  --accent-soft: oklch(0.280 0.050 258);
+  --ok-ink: oklch(0.820 0.110 150);
+  --ok-soft: oklch(0.300 0.050 150);
+  --warn-ink: oklch(0.850 0.110 85);
+  --warn-soft: oklch(0.310 0.050 75);
+  --bad-ink: oklch(0.800 0.100 25);
+  --bad-soft: oklch(0.310 0.060 25);
+  --shadow: 0 0 0 1px #2d3137, 0 8px 24px -8px rgba(0,0,0,0.5);
+  color-scheme: dark;
+}
+
+/* 精密・白 — 部品の CSS。値はすべてトークンを var(--…) で参照する */
+html { overflow-x: clip; }
+body {
+  overflow-x: clip;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--font-body);
+  font-size: 17px;
+  line-height: 1.75;
+  letter-spacing: var(--body-track);
+  font-kerning: normal;
+  font-synthesis: none;
+  text-autospace: normal;
+  -webkit-font-smoothing: antialiased;
+}
+h1, h2, h3 {
+  font-family: var(--font-display);
+  font-weight: var(--display-weight);
+  letter-spacing: var(--display-track);
+  font-feature-settings: "palt";
+  text-wrap: balance;
+  word-break: keep-all;
+  overflow-wrap: anywhere;
+  margin: 0;
+}
+h1 { font-size: clamp(30px, 1.35rem + 2.4vw, 44px); line-height: 1.25; }
+h2 { font-size: clamp(21px, 1.2rem + .7vw, 25px); line-height: 1.35; }
+h3 { font-size: 18px; line-height: 1.4; }
+p { max-width: 40em; }
+a { color: var(--link); text-underline-offset: .2em; text-decoration-thickness: 1px; }
+a:hover { text-decoration-thickness: 2px; }
+.num { font-family: var(--font-num); font-variant-numeric: tabular-nums; }
+:focus-visible { outline: 2px solid var(--link); outline-offset: 2px; }
+
+/* パネル: 浮かせたい面だけに使う */
+.panel { background: var(--surface); border-radius: var(--r-lg); box-shadow: var(--shadow); padding: var(--space-5); display: grid; gap: var(--space-4); min-width: 0; }
+
+/* ボタン */
+.btn {
+  appearance: none; font: inherit; font-size: 15px; line-height: 1.2; font-weight: 500;
+  min-height: 44px; padding: 10px 18px; border-radius: var(--r-btn); cursor: pointer;
+  border: 1px solid transparent; white-space: nowrap;
+  transition: background-color var(--dur) var(--ease), border-color var(--dur) var(--ease), transform var(--dur) var(--ease);
+}
+.btn:active { transform: translateY(1px); }
+.btn.primary { background: var(--accent); color: var(--accent-ink); }
+.btn.secondary { background: var(--bg); color: var(--ink); border-color: var(--edge); }
+.btn.secondary:hover { background: var(--surface-2); }
+.btn.quiet { background: transparent; color: var(--link); padding-inline: 10px; }
+.btn.quiet:hover { text-decoration: underline; text-underline-offset: .2em; }
+
+/* 札 */
+.chip { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; line-height: 1.2; font-weight: 500; white-space: nowrap; padding: 5px 10px; border-radius: var(--r-pill); }
+.chip::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: currentColor; }
+.chip.ok { background: var(--ok-soft); color: var(--ok-ink); }
+.chip.warn { background: var(--warn-soft); color: var(--warn-ink); }
+.chip.bad { background: var(--bad-soft); color: var(--bad-ink); }
+.chip.plain { background: var(--surface-2); color: var(--ink-2); }
+
+/* 注意書き */
+.callout { background: var(--warn-soft); color: var(--ink); border-radius: var(--r-md); padding: 16px 18px; display: grid; gap: 6px; }
+.callout .h { font-weight: 600; color: var(--warn-ink); font-size: 15px; }
+.callout p { font-size: 15px; line-height: 1.7; margin: 0; }
+code { font-family: var(--font-num); font-size: .875em; background: var(--surface-2); padding: .05em .35em; border-radius: 4px; }
+
+/* 表（横にあふれるときは外側を .scroll で包む） */
+.scroll { overflow-x: auto; min-width: 0; }
+table.data { border-collapse: collapse; width: 100%; font-size: 15px; line-height: 1.6; }
+table.data th, table.data td { text-align: left; vertical-align: top; padding: 11px 14px 11px 0; border-bottom: 1px solid var(--line); }
+table.data th:last-child, table.data td:last-child { padding-right: 0; }
+table.data thead th { font-weight: 600; font-size: 14px; color: var(--ink-2); border-bottom-color: var(--edge); white-space: nowrap; }
+table.data tbody th { font-weight: 600; white-space: nowrap; }
+table.data tr[aria-current="true"] { background: var(--accent-soft); }
+table.data td.num, table.data th.num { text-align: right; }
+
+/* 入力欄 */
+.field { display: grid; gap: 6px; }
+.field label { font-weight: 600; font-size: 15px; }
+.field input, .field textarea, .field select {
+  font: inherit; font-size: 16px; line-height: 1.6; color: var(--ink);
+  background: var(--bg); border: 1px solid var(--edge); border-radius: var(--r-sm);
+  padding: 10px 12px; width: 100%; box-sizing: border-box;
+}
+.field textarea { min-height: 88px; resize: vertical; field-sizing: content; }
+.field .hint { font-size: 13px; color: var(--ink-2); }
+
+/* 切り替え（2〜5個の排他の選択） */
+.seg { display: inline-flex; gap: 2px; padding: 3px; background: var(--surface-2); border-radius: calc(var(--r-btn) + 3px); }
+.seg button {
+  appearance: none; border: 0; background: transparent; color: var(--ink-2);
+  font: inherit; font-size: 15px; line-height: 1.2; white-space: nowrap;
+  padding: 8px 13px; min-height: 40px; border-radius: var(--r-btn); cursor: pointer;
+  transition: color var(--dur) var(--ease), background-color var(--dur) var(--ease), box-shadow var(--dur) var(--ease);
+}
+.seg button[aria-pressed="true"] { background: var(--bg); color: var(--ink); box-shadow: var(--shadow); }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { transition: none !important; animation: none !important; scroll-behavior: auto !important; }
+}
+/* house-style:end */
+</style>
+<style>
+/* 1段の読み物。要旨 → 仕組み → 今のとなり → 活かせること（ここだけ浮かせる） → 不利なこと → 主題ごとの要点 */
+main { max-width: 880px; margin: 0 auto; padding-block: var(--space-7) var(--space-8); padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); display: grid; gap: var(--space-7); }
+header, section { display: grid; gap: var(--space-4); min-width: 0; }
+.lede { font-size: 19px; line-height: 1.7; margin: 0; }
+.note { font-size: 15px; color: var(--ink-2); margin: 0; }
+p { margin: 0; }
+.mech { list-style: none; margin: 0; padding: 0; display: grid; border-top: 1px solid var(--line); }
+.mech li { display: grid; grid-template-columns: 9.5em 1fr; gap: var(--space-4); padding: var(--space-3) 0; border-bottom: 1px solid var(--line); }
+.mech b { font-weight: 600; }
+.mech span { font-size: 15px; line-height: 1.7; min-width: 0; }
+.mech .src { color: var(--ink-2); font-size: 13px; }
+@media (max-width: 560px) { .mech li { grid-template-columns: 1fr; gap: var(--space-1); } }
+.ladder { display: grid; gap: var(--space-2); }
+.step { display: grid; grid-template-columns: 7em 1fr; gap: var(--space-3); align-items: start; padding: var(--space-3); border-radius: var(--r-md); background: var(--surface); }
+.step.now { background: var(--accent-soft); }
+.step h3 { font-size: 15px; }
+.step p { font-size: 15px; line-height: 1.6; }
+.step .def { color: var(--ink-2); font-size: 13px; }
+@media (max-width: 560px) { .step { grid-template-columns: 1fr; gap: var(--space-1); } }
+.top4 { display: grid; gap: var(--space-4); counter-reset: n; }
+.top4 article { display: grid; gap: var(--space-1); padding-bottom: var(--space-4); border-bottom: 1px solid var(--line); }
+.top4 article:last-child { border-bottom: 0; padding-bottom: 0; }
+.top4 h3 { font-size: 18px; }
+.top4 p { font-size: 15px; line-height: 1.7; }
+.top4 .why { color: var(--ink-2); font-size: 13px; }
+table.data td, table.data th { font-size: 14px; }
+.themes { display: grid; gap: var(--space-5); }
+.themes article { display: grid; gap: var(--space-2); }
+.themes h3 { font-size: 18px; }
+.themes p { font-size: 15px; line-height: 1.75; }
+.chip { vertical-align: 1px; }
+</style>
+
+<main>
+<header>
+<h1>人が理解する仕組み</h1>
+<p class="lede">人が「分かる」とはどういうことか、頭の中で何が起きているかを、論文で調べて5つの主題・67項目にまとめました。そのうえで、となりに活かせることを11案に絞りました。いちばんの結論は、図を見せるものを足すより、あなたが自分で考えて言う場面を増やす方が効く、ということです。</p>
+<p class="note">数字は論文の出版社のページや書誌の窓で確かめたものだけを載せています。全文は <code>tonari/research/d-人が理解する仕組み-2026-11.md</code>（38万字・コミット 22e72c8b）にあります。</p>
+</header>
+
+<section aria-labelledby="h-mech">
+<h2 id="h-mech">研究が描く「理解」の仕組み</h2>
+<ul class="mech">
+<li><b>理解とは何か</b><span>頭の中の1つの状態ではなく、できることの幅で決まる。自分の言葉で説明できる、少し違う場面に当てはめられる、「もし条件が違っていたらどうなるか」に答えられる、の程度。<br><span class="src">Perkins 1998、Woodward 2003、Hills 2016（主題1）</span></span></li>
+<li><b>読むと何ができるか</b><span>文章からは、語そのもの・述べられた意味・描かれた状況の3つの層ができる。語の層は直後にしか残らず、日をまたいで残るのは状況の層。<br><span class="src">van Dijk &amp; Kintsch 1983、Kintsch ほか 1990（主題1）</span></span></li>
+<li><b>仕組みの理解</b><span>部品のつながりの模型として作られ、頭の中で一部ずつ動かして使われる。言葉で説明できることと、動かせることは別。<br><span class="src">Gentner &amp; Gentner 1983、Hegarty 2004（主題1）</span></span></li>
+<li><b>知っていることの効き方</b><span>新しいことは、すでに持っている枠組みに結びつくと分かりやすく覚えやすい。ただし一度に関係づけられる新しい要素は4つ前後まで。<br><span class="src">Bransford &amp; Johnson 1972、Cowan 2001（主題2）</span></span></li>
+<li><b>学びを動かすもの</b><span>予想して外れること、誤りを正されること、混乱が解けること。ひらめいて解いた答えは14日後もよく思い出された。<br><span class="src">Brod 2021、Metcalfe 2017、D'Mello ほか 2014、Danek ほか 2013（主題3）</span></span></li>
+<li><b>誤った理解</b><span>正されても消えずに、抑えられて残る。理科を長く学んだ大人も、直観に合わない文の判断が遅い。<br><span class="src">Shtulman &amp; Valcarcel 2012（主題4）</span></span></li>
+<li><b>教えることの効き目</b><span>効くのは説明の上手さではなく、学ぶ人が自分で組み立てる場面。家庭教師が説明を控えて促すだけでも、学びは変わらなかった。<br><span class="src">Chi ほか 2001、VanLehn 2011（主題5）</span></span></li>
+</ul>
+</section>
+
+<section aria-labelledby="h-now">
+<h2 id="h-now">今のとなりはどこにいるか</h2>
+<p>学ぶ人がすることを4段に分ける ICAP（Chi &amp; Wylie 2014）で見ると、今のとなりでの動きは下の2段に集まっています。上の段ほど学びが深くなる、というのがこの枠組みの主張です。</p>
+<div class="ladder">
+<div class="step"><h3>相互作用</h3><p>先生役とやりとりしながら、2人で考えを組み立てる。<br><span class="def">今のとなりには無い。確かめの問いは1往復で終わる。</span></p></div>
+<div class="step"><h3>構成</h3><p>書いていないことを自分で言う。説明する、予想する、当てはめる。<br><span class="def">確かめの問いが、本文に書いていない推論を求めるときだけ。あなたが自分から「確認ですけど〜ですよね」と言い直すのもここ。</span></p></div>
+<div class="step now"><h3>能動</h3><p>手を動かすが、新しいことは言わない。<br><span class="def">図の札を押す、「分かる・あやしい」を押す、本文に書いてある関係を答える。</span></p></div>
+<div class="step now"><h3>受け身</h3><p>読む、見る。<br><span class="def">答えを読む。となりの中心の動き。</span></p></div>
+</div>
+<p>毎回すぐ完成した答えを渡す形は、生成 AI の実験で害が出た側にあります。トルコの高校で約1,000人に数学の練習をさせた実験では、制限なしの GPT で練習した生徒は、道具を取り上げたあとの試験で17%下がりました。答えを直接渡さずヒントだけ出す型では、害はほぼ消えました（Bastani ほか 2025、PNAS）。</p>
+<p>10月29日の夜の記録（6話題・12往復）も同じ所を指していました。</p>
+<div class="scroll"><table class="data">
+<thead><tr><th>数えたもの</th><th class="num">数</th></tr></thead>
+<tbody>
+<tr><td>確かめの問い</td><td class="num">24問（手つかず20）</td></tr>
+<tr><td>概念の「分かる・あやしい・分からない」の申告</td><td class="num">0件</td></tr>
+<tr><td>あなたが自分から言い直して確かめた発言</td><td class="num">3回（記録に入ったのは1回）</td></tr>
+</tbody></table></div>
+<p class="note">確かめの問いの多くは「何の軸で対になるか」「上位概念は何か」のように関係の名前を問う形でした。一晩分の記録なので、問いの形が手つかずの原因だとまでは言えません。</p>
+</section>
+
+<section aria-labelledby="h-use">
+<h2 id="h-use">活かせること</h2>
+<p>画面に見せるものを足すより、あなたがすることを変える案を上にしました。上の4つは、どれも1回の答えの中で成り立ち、1から3は先生役の指示を書き換えるだけでほぼ入ります。</p>
+<div class="panel top4">
+<article><h3>1. 自分から言い直した発言を、確かめとして判定する</h3><p>「確認ですけど〜ですよね」と言ったら、先生役が合っている所と違う所を返し、関係の記録に入れます。あなたがすでにしている動きなので、手間が増えません。今は判定を「確かめの問いへの答え」に限っているため、記録に入りません。</p><p class="why">根拠: 家庭教師は促すだけでも効いた（Chi ほか 2001）、自己説明の効果（研究 a の 5-1）</p></article>
+<article><h3>2. 確かめの問いを「もしも」と「当てはめ」の形にする</h3><p>仕組みの質問には「もし〜が無かったらどうなるか、なぜか」、やり方の質問には「次の場面ならどうするか」を出します。答えの本文に書いてある語を返せば済む問いは、機械で弾いて作り直させます。</p><p class="why">根拠: 理解の定義（条件が違ったらどうなるか）、語の層は直後しか残らない（Kintsch ほか 1990）</p></article>
+<article><h3>3. 判定のあとの返し方を決める</h3><p>あなたの言葉のまま違う所を1文で名指しし、打ち消して、正しい説明を厚く書き、どこで推論がずれたかを言います。ほめ言葉と点数は言いません。</p><p class="why">根拠: 反駁文のメタ分析 g＝0.41（Schroeder &amp; Kucera 2022）、フィードバックの3分の1以上が成績を下げた（Kluger &amp; DeNisi 1996）、やり方まで伝える返しは d＝0.99（Wisniewski ほか 2020）</p></article>
+<article><h3>4. 確かめに答える間は答えを畳み、分からないにはヒントを返す</h3><p>確かめの問いに答えている間は、答えの本文と図を畳みます。「分からない」と言われたら、答えではなくヒントを一段ずつ返します。</p><p class="why">根拠: 答えを渡さない家庭教師型では害がほぼ消えた（Bastani ほか 2025）</p></article>
+</div>
+
+<h3>11案の一覧</h3>
+<div class="scroll"><table class="data">
+<thead><tr><th>順</th><th>案</th><th>あなたがすることの変化</th><th>変わる所</th><th>効く時点</th><th>扱い</th></tr></thead>
+<tbody>
+<tr><td class="num">1</td><td>言い直しを確かめとして判定・記録</td><td>今の言い直しが記録になる</td><td>先生役の指示・判定の取り込み</td><td>1回の答え</td><td><span class="chip ok">新</span></td></tr>
+<tr><td class="num">2</td><td>確かめの問いを「もしも」「当てはめ」に</td><td>書いてある語を返す→推論する</td><td>先生役の指示・機械の決まり</td><td>1回の答え</td><td><span class="chip ok">新</span></td></tr>
+<tr><td class="num">3</td><td>判定のあとの返し方（名指し→正しい説明）</td><td>誤りに気づいて直す</td><td>先生役の指示</td><td>判定の直後</td><td><span class="chip ok">新</span></td></tr>
+<tr><td class="num">4</td><td>確かめ中は答えを畳む・ヒントを一段ずつ</td><td>見て写すのでなく自分で出す</td><td>画面・先生役の指示</td><td>1回の答え</td><td><span class="chip ok">新</span></td></tr>
+<tr><td class="num">5</td><td>送るときに予想を一言、答えは食い違いから</td><td>待つ前に自分の考えを出す</td><td>画面・整形役・先生役の指示</td><td>1回の答え</td><td><span class="chip plain">一部既出</span></td></tr>
+<tr><td class="num">6</td><td>足場は申告でなく確かめ済みの関係で決める</td><td>分かった感じで記録が水増しされない</td><td>記録・画面</td><td>記録が溜まってから</td><td><span class="chip plain">一部既出</span></td></tr>
+<tr><td class="num">7</td><td>誤った理解の印を残し、日をおいて問い直す</td><td>古い理解を抑える練習</td><td>記録・先生役の指示</td><td>記録が溜まってから</td><td><span class="chip plain">一部既出</span></td></tr>
+<tr><td class="num">8</td><td>2つの例の共通点を言わせる問い</td><td>比べて抽象を作る</td><td>先生役の指示</td><td>1回の答え</td><td><span class="chip ok">新</span></td></tr>
+<tr><td class="num">9</td><td>先生役の誤りは前の説明を名指しして直す</td><td>誤った関係が残らない</td><td>先生役の指示・記録</td><td>誤りが見つかったとき</td><td><span class="chip ok">新</span></td></tr>
+<tr><td class="num">10</td><td>新しい要素は分からない概念で数えて3〜4個まで</td><td>一度に抱える量が減る</td><td>先生役の指示</td><td>1回の答え</td><td><span class="chip ok">新</span></td></tr>
+<tr><td class="num">11</td><td>答えの文の書き方（因果の順・関係ない詳しさで長くしない）</td><td>見せ方だけ</td><td>先生役の指示</td><td>1回の答え</td><td><span class="chip warn">弱い</span></td></tr>
+</tbody></table></div>
+<p class="note">「一部既出」は設計書の 7.4 と 12.5 にすでに候補として載っていたものに、今回の研究で条件を足したものです。10 の「3〜4個」は作業記憶の研究からの推測で、図で確かめた実験はありません。どの案もまだ入れていません。</p>
+</section>
+
+<section aria-labelledby="h-against">
+<h2 id="h-against">研究が設計に不利なこと</h2>
+<p>前提知識の量と、学びの伸びの関係は、平均するとほぼゼロでした（Simonsmeier ほか 2022 のメタ分析、相関 −.059）。後の成績とは強く結びつく（.53）のに、伸びとは結びつかず、誤った前提知識はそのまま引き継がれます。「分かる」と申告した概念だけを足場にすると、誤りを広げかねません。</p>
+<p>予想の効き目の中心である「外れたときの驚き」は、予想してすぐ答えを見る手続きでしか確かめられていません。約30秒待って別の話題へ移るとなりの使い方は、その外にあります。一方で、好奇心がその場の別の情報まで覚えさせる効き目は問いの直後の2〜4秒だけで（Murphy ほか 2021）、試みてから答えを見る得は答えが24時間遅れても残りました（Kornell 2014）。話題を移ることで好奇心の効き目を大きく捨てている、とは言えません。</p>
+<p>問い返しを増やすと、煩わしさや苛立ちが起きえます。自分の意思で使う道具で、問い返しが使い続けることを減らすかを直接測った研究は見つかりませんでした。答えの判定を、答えの構造の段（SOLO）で付ける案も考えましたが、人の評定者どうしでも全員が一致したのは62%から0%でした。</p>
+<p>集めた研究の多くは、理科・数学の問題や短い文章を扱ったものです。大人がひとりで声で質問し、法令や技術の仕組みを学ぶ場面で確かめた研究は、ほとんどありません。</p>
+<h3>しないこと</h3>
+<p>学習スタイル（見る型・聞く型など）に合わせて答えの形を変えることはしません。証拠がありません（Pashler ほか 2008）。知識の多い話題で、つなぎの言葉を減らして推論させる案も、後の研究が反証しているのでしません（O'Reilly &amp; McNamara 2007）。完成した図を増やすこと自体を、学びの手段にはしません。</p>
+</section>
+
+<section aria-labelledby="h-themes">
+<h2 id="h-themes">主題ごとの要点</h2>
+<div class="themes">
+<article><h3>主題1　理解とは何か、文章と仕組みはどう理解されるか（14項目）</h3><p>理解は、説明する・例を見つける・当てはめる・たとえる・別の形で表し直す、ができる程度として定義される。仕組みの理解は部品のつながりの模型で、その模型（たとえを含む）が後の推論の型を決める。人が良いと感じる説明の手がかり（原因の少なさ、長さ、関係のない下の層の話）は、正しさとは別に動く（Weisberg ほか 2008）。誤った考えを名指しして否定する文章は、誤概念を直すのに中くらいの効果がある。</p></article>
+<article><h3>主題2　前提知識とスキーマ、新しいことが頭に固まる仕組み（14項目）</h3><p>何の話か分からない文章は、枠を先に知らされると分かりやすさも記憶も大きく上がり、後から知らされても戻らない（Bransford &amp; Johnson 1972）。答えの冒頭で既知の概念とのつながりを言う形（先行オーガナイザー）の効果は 0.2 標準偏差前後と小さい。ネズミでは、枠ができていると新しい対が1回で固まる（Tse ほか 2007）が、人の概念の学びに写すには距離がある。2つの例を比べて共通点を言えた人は、別の場面に使えた（Gick &amp; Holyoak 1983）。</p></article>
+<article><h3>主題3　予測・好奇心・驚き・ひらめき・混乱（14項目）</h3><p>好奇心の高い問いの答えはよく覚えられる（70.6% 対 54.1%、Gruber ほか 2014）。予想させると、外れたときに驚き、そこを覚える。自信の高い誤りほど直りやすい。混乱は、解ければ学びになり、解けずに続くと苛立ちと退屈に変わる。ただし「混乱した」という本人の申告は、実際の混乱をほとんど映さない。ひらめきの感じは誤った理解にも起き、同時に見ている文の真らしさまで上げる。</p></article>
+<article><h3>主題4　誤概念と、概念の組み替え（11項目）</h3><p>誤概念の形は、1つの誤った信念、まとまった誤った模型、カテゴリーの取り違え、断片の直観と、いくつもの見方がある。関係ごとの記録で場所を特定できるのは、誤った線1本で書ける誤り（誤った信念）までで、カテゴリーの取り違えや断片の直観は線1本の単位では見えない。正し方では反駁文がいちばん確かで（g＝0.41、出版の偏りを補正して 0.28）、効くのは打ち消しより正しい説明の部分。</p></article>
+<article><h3>主題5　教えることの機序、家庭教師の対話・説明・フィードバック・生成 AI（14項目）</h3><p>人の家庭教師の効果は「2シグマ」ではなく d＝0.79 ほどで、一歩ごとに判定と手がかりを返す機械の家庭教師（0.76）とほぼ同じ（VanLehn 2011）。説明は、学ぶ人が行き詰まったあとにだけ学びと結びつき、自分で説明する機会を奪いうる。AI に頼ると、自分で調整して深く考えることが減る、という結果が並ぶ。</p></article>
+</div>
+</section>
+
+<p class="note">この調べの前に、研究 a（概念の理解と関係の学び）、b（見せ方と話題の回し方）、c（表現の選び方）があり、重なる所は調べ直さずに参照しています。11案をとなりに入れるなら、1から3から始めるのがよいと考えています。</p>
+</main>

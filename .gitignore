@@ -1,0 +1,6 @@
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+# 試しの音声は macOS の声で作るので再配布しない（tests/audio/make_mac.sh で手元に作る）
+tests/audio/*.wav
