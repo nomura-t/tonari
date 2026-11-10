@@ -167,27 +167,40 @@ async def ask_tutor(turn_id: int, text: str, kind: str, via: str, unsure: list[d
                             ORDER BY seq DESC LIMIT 1""", (sid, t["seq"])) if t else None
         predict = json.loads(pv["stage_ms"] or "{}").get("predict") if pv else None
         if t and t["ref_turn"]:
-            r = db.row(con, "SELECT answer_md FROM turn WHERE id=?", (t["ref_turn"],))
-            views = tutor.parse_blocks(r["answer_md"] or "")["views"] if r else []
-            ref = {"name": views[0]["name"], "type": views[0]["type"]} if views else {"name": None, "type": "text"}
+            r = db.row(con, "SELECT answer_md, stage_ms FROM turn WHERE id=?", (t["ref_turn"],))
+            views = tutor.turn_blocks(r["answer_md"], json.loads(r["stage_ms"] or "{}"))["views"] if r else []
+            mv = tutor.main_view(views)   # たとえの塊は図に数えない
+            ref = {"name": mv["name"], "type": mv["type"]} if mv else {"name": None, "type": "text"}
+    # 会話を始めたときの指示が今の指示と違えば --resume せずに新しい会話で始め、これまでの往復を添える（--resume は
+    # 始めたときの指示を使い続けるため。tutor.resume_plan）。この起動ですでに動いている先生役は今の指示で始めたもの
+    sig = tutor.prompt_sig()
+    alive = sid in brain.TUTORS.tutors and brain.TUTORS.tutors[sid].alive
+    resume, need_recap = (s["claude_sid"], False) if alive else tutor.resume_plan(s["claude_sid"], s.get("prompt_sig"), sig)
+    recap = tutor.recap_text(sid, t["seq"]) if need_recap and t else None
+    if need_recap:
+        stage["fresh_prompt"] = True   # 指示が変わったので新しい会話で始めた往復の印
     content = tutor.turn_content(sid, text, kind, via, unsure, s.get("detail") or "auto", ref, stage.get("hedges"),
-                                 predict, check_id if kind == "answer" else None)
+                                 predict, check_id if kind == "answer" else None, recap)
     t2 = time.time()
     md = ""
     for attempt in range(4):
-        tu = brain.TUTORS.get(sid, tutor.system_prompt(), s["model"], s["claude_sid"])
+        tu = brain.TUTORS.get(sid, tutor.system_prompt(), s["model"], resume)
         md = ""
+        warmed = False
         try:
             async for kind_, data in tu.ask(content):
                 if kind_ == "text":
                     md += data
+                    if not warmed and "```tonari-analogy" in md:
+                        judge.PAIR_POOL.warm()   # 答えの残りが流れるあいだに、対を確かめる判定役を立てておく
+                        warmed = True
                     events.publish({"t": "delta", "turn_id": turn_id, "session_id": sid, "text": data})
                 elif kind_ == "tool":
                     events.publish({"t": "tool", "turn_id": turn_id, "session_id": sid, "name": data})
-                elif kind_ == "sid" and data != s["claude_sid"]:
+                elif kind_ == "sid" and (data != s["claude_sid"] or s.get("prompt_sig") != sig):
                     with db.tx() as con:
-                        con.execute("UPDATE session SET claude_sid=? WHERE id=?", (data, sid))
-                    s["claude_sid"] = data
+                        con.execute("UPDATE session SET claude_sid=?, prompt_sig=? WHERE id=?", (data, sig, sid))
+                    s["claude_sid"], s["prompt_sig"] = data, sig
             break
         except brain.BrainError as e:
             msg = str(e)
@@ -195,7 +208,7 @@ async def ask_tutor(turn_id: int, text: str, kind: str, via: str, unsure: list[d
                 wait = 20 * (attempt + 1)
                 events.publish({"t": "turn", "turn_id": turn_id, "session_id": sid, "status": "thinking",
                                 "note": f"先生役が混んでいます。{wait}秒後にもう一度送ります"})
-                if tu.resume_sid is None:
+                if tu.resume_sid is None and not need_recap:   # 新しい会話で始め直す途中なら前の会話の id は残す（要約の元）
                     with db.tx() as con:
                         con.execute("UPDATE session SET claude_sid=NULL WHERE id=?", (sid,))
                     s["claude_sid"] = None
@@ -205,23 +218,31 @@ async def ask_tutor(turn_id: int, text: str, kind: str, via: str, unsure: list[d
             raise
     stage["tutor"] = int((time.time() - t2) * 1000)
     stage["kind"] = kind
-    grades = tutor.parse_blocks(md)["grade"]
+    pre = tutor.parse_blocks(md)
+    grades = pre["grade"]
     judged = None
     if grades:
         t3 = time.time()
-        judged = await judge.second_opinion(sid, grades, text)
+        judged = await judge.second_opinion(sid, grades, text, check_id if kind == "answer" else None)
         stage["judge"] = int((time.time() - t3) * 1000)
+    analogies = [v for v in pre["views"] if v["type"] == "analogy"]
+    if analogies:
+        # A5: 機械の決まりを通ったたとえの対を、判定役がもう一度確かめる（結果は読み直しでも当てる）
+        t4 = time.time()
+        stage["analogy"] = await judge.check_pairs(tutor.strip_blocks(md), analogies)
+        stage["pair_judge"] = int((time.time() - t4) * 1000)
     finish(turn_id, sid, md, text, stage, kind, judged, check_id if kind == "answer" else None)
     await brain.TUTORS.trim()
 
 
 def finish(turn_id: int, sid: int, md: str, said: str, stage: dict, kind: str = "question",
            judged: list | None = None, check_id: int | None = None) -> None:
-    blocks = tutor.parse_blocks(md)
+    blocks = tutor.parse_blocks(md, pair_verdicts=stage.get("analogy"))
     kept, dropped = tutor.filter_checks(blocks["check"], md)
     blocks["errors"] += dropped
     with db.tx() as con:
         center = tutor.merge_map(con, sid, turn_id, blocks["map"]) if blocks["map"] else None
+        tutor.save_analogies(con, sid, turn_id, blocks["views"])
         grades = tutor.apply_grades(con, sid, turn_id, blocks["grade"], said, kind, judged, check_id) if blocks["grade"] else []
         if kind == "answer" and check_id and not blocks["grade"]:
             con.execute("UPDATE checkq SET status='answered' WHERE id=? AND status='open'", (check_id,))
@@ -236,6 +257,7 @@ def finish(turn_id: int, sid: int, md: str, said: str, stage: dict, kind: str = 
         st["grades"] = grades
         st["center"] = center
         st["block_errors"] = blocks["errors"]
+        st["rules"] = 4   # v0.4 の決まりで読んだ答えの印（読み直しで、たとえを前の決まりに戻さない）
         # 選んだ見せ方を往復ごとに残す（あとで「どの形の答えのあとに確かめが当たったか」を数えるため）
         st["shapes"] = [{"type": v["type"], "name": v["name"], "why": v.get("why", "")} for v in blocks["views"]]
         con.execute("UPDATE turn SET answer_md=?, status='done', done_at=?, stage_ms=? WHERE id=?",

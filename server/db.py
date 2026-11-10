@@ -18,7 +18,7 @@ CREATE TABLE IF NOT EXISTS session (
   id INTEGER PRIMARY KEY,
   title TEXT NOT NULL DEFAULT '新しい話題',
   model TEXT NOT NULL,
-  claude_sid TEXT,                    -- 先生役の会話の id（--resume で続きから）
+  claude_sid TEXT,                    -- 先生役の会話の id（--resume で続きから。指示が変わったら新しい会話・prompt_sig）
   created_at REAL NOT NULL,
   updated_at REAL NOT NULL,
   read_at REAL NOT NULL DEFAULT 0,    -- 本人が最後にこの話題を開いていた時刻（未読の判定）
@@ -97,6 +97,19 @@ CREATE TABLE IF NOT EXISTS stt_usage (
   id INTEGER PRIMARY KEY, engine TEXT NOT NULL, sec REAL NOT NULL, at REAL NOT NULL
 );
 CREATE TABLE IF NOT EXISTS pref (k TEXT PRIMARY KEY, v TEXT NOT NULL);
+-- v0.4（A8）: 話題のたとえ。画面に出したたとえの塊を残し、次の答えに最新のものを渡して元の世界をそろえる。
+-- 表ごと足すので、すでにある記録の DB にも init のたびの CREATE TABLE IF NOT EXISTS で入る（列を足す MIGRATIONS とは別）
+CREATE TABLE IF NOT EXISTS analogy (
+  id INTEGER PRIMARY KEY,
+  session_id INTEGER NOT NULL,
+  turn_id INTEGER NOT NULL,
+  source TEXT NOT NULL,               -- 元の世界
+  target TEXT,                        -- 学ぶもの
+  by TEXT NOT NULL,                   -- tutor（先生役のたとえ）/ user（本人が持ち込んだたとえ）
+  json TEXT NOT NULL,                 -- relation・pairs・unmapped・breaks
+  created_at REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS analogy_session ON analogy(session_id, id);
 """
 
 
@@ -130,6 +143,13 @@ MIGRATIONS = [
     ("turn", "haas_text", "ALTER TABLE turn ADD COLUMN haas_text TEXT"),                          # 端末内の2本目（speech.cpp の Haas）
     ("turn", "haas_ms", "ALTER TABLE turn ADD COLUMN haas_ms INTEGER"),
     ("checkq", "qtype", "ALTER TABLE checkq ADD COLUMN qtype TEXT"),                              # 確かめの問いの型（もしも・当てはめ・共通点・見分け）
+    # v0.4 作業B（C1）: 確かめの問いのヒント（JSON の文字の配列・2段まで）と、戻ったときの帯で本人が出した段の数
+    ("checkq", "hints", "ALTER TABLE checkq ADD COLUMN hints TEXT"),
+    ("checkq", "hints_used", "ALTER TABLE checkq ADD COLUMN hints_used INTEGER NOT NULL DEFAULT 0"),
+    # 先生役の会話を始めたときの指示の印（tutor.prompt_sig）。claude -p の --resume は会話を始めたときの指示を使い続け、
+    # --system-prompt-file を渡し直しても変わらない（2026-11-10・claude 2.1.322 で確かめた）。印が今の指示と違えば
+    # --resume せずに新しい会話を始め、これまでの往復の要約を添える（DESIGN 15.11）
+    ("session", "prompt_sig", "ALTER TABLE session ADD COLUMN prompt_sig TEXT"),
 ]
 
 

@@ -90,6 +90,7 @@
     seenAtBoot: new Set(), // 起動した時点で読み方を見たことのある図の形（初めての形にだけ読み方を1行出す）
     seenNow: new Set(),
     refCache: {},
+    typedKind: null,      // 文字の欄で送る発言の種類（図を自分の言葉で言うときは confirm）
   };
 
   async function api(method, path, body) {
@@ -190,6 +191,7 @@
     if (S.rec.phase === "recording") return;
     S.active = id;
     S.editing = null;
+    typeFor(null);   // 「この図を自分の言葉で言う」の文字の欄は、話題を移ったら持ち越さない
     try { localStorage.setItem("tonari.active", String(id)); } catch (e) { /* 保存できなくても動く */ }
     paintRail();
     S.showReturn = false;   // 前の話題の確かめを持ち越さない
@@ -232,24 +234,39 @@
     paintTalk();
   }
 
-  function paintRetCheck() {
+  // 戻ったときの帯は、試験でなく「当ててみる」調子にする（ほめ言葉・点数は出さない）。ヒント（C1）は押すたびに1段ずつ
+  function paintRetCheck(fresh = -1) {
     const box = $("#retcheck");
     const rc = retCheck();
     if (!rc) { box.hidden = true; box.innerHTML = ""; setIntent(); return; }
-    box.innerHTML = `<div class="rc-k">前に読んだ答えの確かめ・${esc(rc.qtype || "")}</div>` +
-      `<p class="rc-q">${esc(rc.q)}</p>` +
-      `<p class="rc-hint">その答えは、いま畳んであります。<kbd>${K("talk")}</kbd> で声で答えると、先生役が判定します。</p>` +
-      `<div class="rc-act"><button class="primary" data-rcvoice="${rc.id}">声で答える</button>` +
-      `<button class="ghost" data-rcstate="unknown" data-rcid="${rc.id}">分からない</button>` +
+    const shown = rc.hints || [], n = rc.hints_n || 0;
+    const hints = shown.length ? `<ol class="rc-hints">${shown.map((h, i) => `<li${i === fresh ? ` class="rc-new"` : ""}><span>ヒント${i + 1}</span>${esc(h)}</li>`).join("")}</ol>` : "";
+    const more = n > shown.length ? `<button class="ghost" data-rchint="${rc.id}">${shown.length ? "もう一段ヒント" : "ヒントをもらう"}</button>` : "";
+    box.innerHTML = `<div class="rc-k">前に読んだ答えから、ひとつ思い出してみる・${esc(rc.qtype || "")}</div>` +
+      `<p class="rc-q">${esc(rc.q)}</p>` + hints +
+      `<p class="rc-hint">答えは畳んであります。当てるつもりで、思い浮かんだことを言ってみてください。<kbd>${K("talk")}</kbd> で話すと、先生役が合っている所と違う所を返します。</p>` +
+      `<div class="rc-act"><button class="primary" data-rcvoice="${rc.id}">声で言ってみる</button>${more}` +
+      `<button class="ghost" data-rcstate="unknown" data-rcid="${rc.id}">思い出せない</button>` +
       `<button class="ghost" data-rcstate="skipped" data-rcid="${rc.id}">飛ばす</button></div>`;
     box.hidden = false;
     setIntent();
+  }
+
+  async function askHint(id) {
+    const rc = S.retSnap;
+    if (!rc || rc.id !== id) return;
+    const r = await api("POST", `/api/checks/${id}/hint`);
+    const before = (rc.hints || []).length;
+    rc.hints = r.hints;
+    rc.hints_n = r.hints_n;
+    paintRetCheck(r.hints.length > before ? r.hints.length - 1 : -1);
   }
 
   async function reveal(tid) {
     await api("POST", `/api/turns/${tid}/reveal`);
     const t = S.detail && S.detail.turns.find((x) => x.id === tid);
     if (t) t.revealed_at = Date.now() / 1000;
+    S.opening = tid;   // 開いた答えだけ、短く現れる
     paintThread(false);
     paintRetCheck();
     paintSide();
@@ -397,17 +414,23 @@
   function gradesHTML(t) {
     if (!t.grades || !t.grades.length) return "";
     const JA = { hit: "当たり", partial: "半分", miss: "まだ" };
-    return `<div class="grades">` + t.grades.map((g) => `<div class="gr g-${esc(g.result)}"><b>${JA[g.result] || "?"}</b>` +
+    // C2: 戻ったときの問いが当たりで記録されたら、読んでから答えるまでの間を事実だけ添える（最初の1行だけ）
+    const at = t.recall ? t.grades.findIndex((g) => g.result === "hit" && g.recorded) : -1;
+    return `<div class="grades">` + t.grades.map((g, i) => `<div class="gr g-${esc(g.result)}"><b>${JA[g.result] || "?"}</b>` +
       `<span>${esc(g.concept)} と ${esc(g.target)}</span>${g.evidence ? `<q>${esc(g.evidence)}</q>` : ""}` +
-      `${g.result !== "miss" && !g.verified ? `<em>根拠の字が発言に無いので記録していません</em>` : ""}</div>`).join("") + `</div>`;
+      `${g.result !== "miss" && !g.verified ? `<em>根拠の字が発言に無いので記録していません</em>` : ""}` +
+      `${i === at ? `<span class="gr-recall">${esc(t.recall.text)}</span>` : ""}</div>`).join("") + `</div>`;
   }
 
   // 答えの本文の [[view:N]] の置き場所に図を入れる。最初の段落が図でなければ、言い切りとして大きく出す
-  function viewHTML(v) {
+  function viewHTML(v, vi, extra = {}) {
     const first = !S.seenAtBoot.has(v.type);
     if (first) S.seenNow.add(v.type);
-    return V.render(v, { states: S.states, firstTime: first });
+    return V.render(v, { states: S.states, firstTime: first, vi, ...extra });
   }
+
+  // 答えの図（たとえの塊は図に数えない添え物なので飛ばす）
+  const mainIdx = (views) => (views || []).findIndex((v) => v.type !== "analogy");
 
   function bodyHTML(text, views, ctx, skip) {
     const blocks = String(text || "").split(/\n\s*\n/);
@@ -416,7 +439,7 @@
       const m = b.trim().match(/^\[\[view:(\d+)\]\]$/);
       if (m) {
         const i = Number(m[1]);
-        if (!skip.has(i) && views[i]) h += viewHTML(views[i]);
+        if (!skip.has(i) && views[i]) h += viewHTML(views[i], i);
         leadDone = true;
         continue;
       }
@@ -429,15 +452,16 @@
 
   // 見せ直しの答えは、前の図と新しい図を横に並べる（研究 c: 置き換えより並べて対応を見せるほうがよい）
   function pairHTML(t) {
-    if (!t.ref_turn || !(t.views || []).length) return { html: "", skip: new Set() };
+    const ni = mainIdx(t.views);
+    if (!t.ref_turn || ni < 0) return { html: "", skip: new Set() };
     const prev = S.detail.turns.find((x) => x.id === t.ref_turn) || (S.refCache[t.ref_turn] || null);
-    const pv = prev && (prev.views || [])[0];
-    const nv = t.views[0];
-    const left = pv ? viewHTML(pv) : `<div class="pair-text">前の答えは文だけでした。</div>`;
+    const pv = prev && (prev.views || [])[mainIdx(prev.views)];
+    // 前の図は別の往復のものなので、この往復の印（番号・色・光らせる相手）を付けない
+    const left = pv ? viewHTML(pv, null, { noSay: true }) : `<div class="pair-text">前の答えは文だけでした。</div>`;
     return {
       html: `<div class="pair"><div class="pair-col"><span class="pair-k">前の見せ方</span>${left}</div>` +
-        `<div class="pair-col"><span class="pair-k now">いまの見せ方</span>${viewHTML(nv)}</div></div>`,
-      skip: new Set([0]),
+        `<div class="pair-col"><span class="pair-k now">いまの見せ方</span>${viewHTML(t.views[ni], ni)}</div></div>`,
+      skip: new Set([ni]),
     };
   }
 
@@ -465,8 +489,8 @@
     if (foldable(t)) return foldHTML(t);
     const rc = retCheck();
     if (rc && rc.turn_id === t.id && t.status === "done") {
-      return `<div class="folded"><p>この答えは、確かめの問いに答えるあいだ畳んであります。</p>` +
-        `<button class="ghost" data-rcstate="skipped" data-rcid="${rc.id}">問いを飛ばして答えを見る</button></div>`;
+      return `<div class="folded"><p>この答えは、上の問いを思い出して言うあいだ畳んであります。</p>` +
+        `<button class="ghost" data-rcstate="skipped" data-rcid="${rc.id}">飛ばして答えを見る</button></div>`;
     }
     if (t.status === "done" && t.answer != null) {
       const ctx = { quotes: t.quotes, cards: t.cards };
@@ -532,7 +556,13 @@
         `${(t.stage && t.stage.fix_fallback) ? `<p><b>直し</b>${esc(t.stage.fix_fallback)}</p>` : ""}</details>` : "") +
       (S.editing !== t.id && t.final_text ? `<button class="link" data-edit="${t.id}">直して聞き直す</button>` : "") +
       `</div></div>` +
-      `<div class="answer">${answerHTML(t)}</div></article>`).join("");
+      `<div class="answer${S.opening === t.id ? " ans-open" : ""}">${answerHTML(t)}</div></article>`).join("");
+    S.opening = null;
+    for (const art of $$(".turn", th)) {
+      const t = d.turns.find((x) => x.id === Number(art.dataset.turn));
+      if (t) markAnswer(art, t);
+    }
+    paintHL();
     renderMermaid();
     const fresh = [...S.seenNow];
     if (fresh.length) { S.seenNow.clear(); api("POST", "/api/seen-views", { types: fresh }).catch(() => {}); }
@@ -544,8 +574,227 @@
     else th.scrollTop = keepY;
   }
 
-  // mermaid は図があるときだけ読み込む（版を固定）
+  // ── 実物に結ぶ（v0.4）: たとえの対と本文の同じ語に同じ番号と色（A6）、図のラベルと本文の『用語』（B3） ──
+  // 照らし方はサーバーの fold と同じ（NFKC・空白を除く・小文字）。長い語を先に当て、重なる短い語は当てない。
+  // 描くたびに #thread を作り直すので、ここも描くたびに一から付ける（付けた印の中は二度と包まない）。
+  const foldStr = (s) => String(s || "").normalize("NFKC").toLowerCase().replace(/\s+/g, "");
+  function foldMap(s) {
+    let f = "", i = 0;
+    const st = [], en = [];
+    for (const ch of s) {
+      const n = ch.normalize("NFKC").toLowerCase().replace(/\s+/g, "");
+      for (let j = 0; j < n.length; j++) { st.push(i); en.push(i + ch.length); }
+      f += n;
+      i += ch.length;
+    }
+    return { f, st, en };
+  }
+
+  function wrapTerms(roots, terms) {
+    const list = terms.filter((t) => t.f).sort((a, b) => b.f.length - a.f.length);
+    if (!list.length) return;
+    const numbered = new Set();
+    for (const root of roots) {
+      const walk = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
+        acceptNode: (n) => (n.parentElement.closest(".view, code, pre, .gx, a, button") ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT),
+      });
+      const nodes = [];
+      while (walk.nextNode()) nodes.push(walk.currentNode);
+      for (const node of nodes) {
+        const s = node.nodeValue, m = foldMap(s), hits = [];
+        for (const t of list) {
+          for (let p = m.f.indexOf(t.f); p >= 0; p = m.f.indexOf(t.f, p + t.f.length)) {
+            const a = m.st[p], b = m.en[p + t.f.length - 1];
+            if (!hits.some((h) => a < h.b && b > h.a)) hits.push({ a, b, t });
+          }
+        }
+        if (!hits.length) continue;
+        hits.sort((x, y) => x.a - y.a);
+        const frag = document.createDocumentFragment();
+        let last = 0;
+        for (const h of hits) {
+          frag.append(s.slice(last, h.a));
+          const sp = document.createElement("span");
+          sp.className = h.t.cls;
+          for (const [k, v] of Object.entries(h.t.attrs)) sp.setAttribute(k, v);
+          sp.textContent = s.slice(h.a, h.b);
+          if (!numbered.has(h.t.key)) {   // 番号は最初に出た所にだけ付ける（色は全部）
+            numbered.add(h.t.key);
+            const no = document.createElement("sup");
+            no.className = "gx-no";
+            no.textContent = h.t.num;
+            sp.append(no);
+          }
+          frag.append(sp);
+          last = h.b;
+        }
+        frag.append(s.slice(last));
+        node.replaceWith(frag);
+      }
+    }
+  }
+
+  function markAnswer(art, t) {
+    const roots = $$(".answer .lead, .answer .prose", art);
+    if (!roots.length) return;
+    const terms = [];
+    (t.views || []).forEach((v, i) => {
+      if (v.type !== "analogy" || v.legacy || !(v.pairs || []).some((p) => "role" in p)) return;
+      const fig = art.querySelector(`.view.v-analogy[data-vi="${i}"]`);
+      if (!fig) return;
+      const g = `${t.id}-${i}`;
+      $$(".an-row", fig).forEach((r) => { r.dataset.g = g; });
+      v.pairs.forEach((p, j) => {
+        const k = String(j + 1), style = `--pc: var(--pair-${k})`;
+        terms.push({ f: foldStr(p.t), cls: "gx gx-t", num: k, key: `${g}:${k}:t`,
+          attrs: { "data-g": g, "data-gp": k, style, title: `実際の名前（対${k}。たとえの側は「${p.s}」）` } });
+        terms.push({ f: foldStr(p.s), cls: "gx gx-s", num: k, key: `${g}:${k}:s`,
+          attrs: { "data-g": g, "data-gp": k, style, title: `たとえの側（対${k}。実際の名前は「${p.t}」）` } });
+      });
+    });
+    wrapTerms(roots, terms);
+    // しくみの絵の光らせる組（data-pg）を、描き直しても変わらない名前（往復と図の番号）にする
+    (t.views || []).forEach((v, i) => {
+      if (v.type !== "parts") return;
+      const fig = art.querySelector(`.view.v-parts[data-vi="${i}"]`);
+      if (fig) $$("[data-pg]", fig).forEach((x) => { x.dataset.pg = `${t.id}-${i}`; });
+    });
+    // B3: 図のラベルと同じ字の『用語』を結ぶ（全部の図の型で同じ印 data-lab・位置の図は札の data-label）
+    const labs = new Map();
+    for (const el of $$(".view [data-lab], .view .node[data-label]", art)) {
+      if (el.closest(".pair-col:first-child")) continue;   // 見せ直しの「前の見せ方」は別の往復の図
+      const f = foldStr(el.dataset.lab ?? el.dataset.label);
+      if (!f) continue;
+      if (!labs.has(f)) labs.set(f, []);
+      labs.get(f).push(el);
+    }
+    let n = 0;
+    for (const term of $$(".lead .term, .prose .term", art)) {
+      const els = labs.get(foldStr(term.dataset.term));
+      if (!els) continue;
+      const id = els[0].dataset.link || `${t.id}~${n++}`;
+      term.dataset.link = id;
+      els.forEach((e) => { e.dataset.link = id; });
+    }
+  }
+
+  // 指す（カーソル・焦点）か押すと、対の相手・表の行・図のラベルが光る。常には光らせない
+  // しくみの絵（B2）は、一覧の行か矢印（data-pl）を指すと、その矢印と一覧の行と両端の箱（data-pb に番号）が光る
+  const LINKED = "[data-g][data-gp], [data-pg][data-pl], [data-link]";
+  let hoverSel = null, pinSel = null;
+  function linkSel(el) {
+    if (!el) return null;
+    if (el.dataset.g && el.dataset.gp) return `[data-g="${el.dataset.g}"][data-gp="${el.dataset.gp}"]`;
+    if (el.dataset.pg && el.dataset.pl) {
+      const g = el.dataset.pg, k = el.dataset.pl;
+      return `[data-pg="${g}"][data-pl="${k}"], [data-pg="${g}"][data-pb~="${k}"]`;
+    }
+    return el.dataset.link ? `[data-link="${el.dataset.link}"]` : null;
+  }
+  function paintHL() {
+    $$(".hl").forEach((x) => x.classList.remove("hl"));
+    for (const s of [hoverSel, pinSel]) if (s) $$(s).forEach((x) => x.classList.add("hl"));
+  }
+  function hoverAt(target) {
+    const s = linkSel(target && target.closest ? target.closest(LINKED) : null);
+    if (s !== hoverSel) { hoverSel = s; paintHL(); }
+  }
+  document.addEventListener("mouseover", (e) => hoverAt(e.target));
+  document.addEventListener("focusin", (e) => hoverAt(e.target));
+  document.addEventListener("click", (e) => {
+    const s = linkSel(e.target.closest ? e.target.closest(LINKED) : null);
+    pinSel = s && s !== pinSel ? s : null;
+    paintHL();
+  });
+
+  // ── 「実際には何のこと？」（v0.4 の A10）: 答えの文を選ぶと近くに札を出し、押すと実際の名前と値を聞き直す ──
+  const groundBtn = document.createElement("button");
+  groundBtn.id = "groundBtn";
+  groundBtn.className = "ground-pop";
+  groundBtn.type = "button";
+  groundBtn.hidden = true;
+  groundBtn.textContent = "実際には何のこと？";
+  document.body.appendChild(groundBtn);
+  let groundText = "";
+  function inAnswer(n) {
+    const e = n && (n.nodeType === 1 ? n : n.parentElement);
+    return !!(e && e.closest("#thread .answer") && !e.closest("textarea, button, .fold, .folded, .pending"));
+  }
+  function placeGround() {
+    const sel = window.getSelection();
+    const txt = sel && !sel.isCollapsed ? sel.toString().replace(/\s+/g, " ").trim().replace(/^[『「]+|[』」]+$/g, "") : "";
+    if (!txt || !inAnswer(sel.anchorNode) || !inAnswer(sel.focusNode) || S.rec.phase !== "idle") { groundBtn.hidden = true; return; }
+    groundText = txt.slice(0, 120);
+    const r = sel.getRangeAt(0).getBoundingClientRect();
+    groundBtn.hidden = false;
+    const w = groundBtn.offsetWidth, h = groundBtn.offsetHeight;
+    let top = r.bottom + 8;
+    if (top + h > innerHeight - 8) top = r.top - h - 8;
+    groundBtn.style.top = `${Math.max(8, top)}px`;
+    groundBtn.style.left = `${Math.min(Math.max(8, r.left), innerWidth - w - 8)}px`;
+  }
+  document.addEventListener("mouseup", () => setTimeout(placeGround, 0));
+  document.addEventListener("keyup", (e) => { if (e.shiftKey || e.key === "Shift") placeGround(); });
+  $("#thread").addEventListener("scroll", () => { groundBtn.hidden = true; });
+  groundBtn.addEventListener("mousedown", (e) => e.preventDefault());   // 押しても選んだ字が消えないように
+  async function askGround() {
+    const txt = groundText;
+    groundBtn.hidden = true;
+    window.getSelection().removeAllRanges();
+    if (!txt || !S.active) return;
+    await sendText(`『${txt}』は、実際には何のことですか。実際の名前と、実際の値か実例で、短く答えてください`, "question", "click", { ground: true });
+  }
+
+  // ── 図を自分の言葉で言う（v0.4 の B4）: 言い直し（confirm）として話し始める。録音できない所では文字の欄へ ──
+  const canRecord = () => !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia) && typeof MediaRecorder !== "undefined";
+  const TYPED_HINT = "打って送る（Enter）";
+  function typeFor(kind) {
+    S.typedKind = kind;
+    const ta = $("#typed");
+    ta.placeholder = kind === "confirm" ? "この図を自分の言葉で（Enter で送る）" : TYPED_HINT;
+    if (kind) ta.focus();
+  }
+  function sayInOwnWords() {
+    if (S.rec.phase !== "idle") return;
+    if (canRecord()) startRec("confirm");
+    else typeFor("confirm");
+  }
+
+  // mermaid は図があるときだけ読み込む（版を固定）。色・線・字はアプリの変数（app.css の :root）から取り、描くたびに
+  // 今の明暗で初めの設定をし直す（作業B）。変数は oklch なので、1点の canvas に塗って #rrggbb にしてから渡す
   let merP = null;
+  function cssHex(name) {
+    const probe = document.createElement("span");
+    probe.style.color = `var(${name})`;
+    document.body.appendChild(probe);
+    const c = getComputedStyle(probe).color;
+    probe.remove();
+    const cv = document.createElement("canvas");
+    cv.width = cv.height = 1;
+    const x = cv.getContext("2d", { willReadFrequently: true });
+    x.fillStyle = "#808080";
+    x.fillStyle = c;
+    x.fillRect(0, 0, 1, 1);
+    const [r, g, b] = x.getImageData(0, 0, 1, 1).data;
+    return "#" + [r, g, b].map((v) => v.toString(16).padStart(2, "0")).join("");
+  }
+  function merTheme() {
+    const v = Object.fromEntries(["--bg", "--surface", "--surface-2", "--line", "--edge", "--ink", "--ink-2", "--warn-soft", "--accent-soft"]
+      .map((n) => [n, cssHex(n)]));
+    const lum = parseInt(v["--bg"].slice(1, 3), 16);
+    const font = getComputedStyle(document.body).fontFamily;
+    return { startOnLoad: false, securityLevel: "strict", theme: "base", fontFamily: font,
+      themeVariables: { darkMode: lum < 128, fontFamily: font, fontSize: "13.5px", background: v["--bg"],
+        primaryColor: v["--bg"], primaryTextColor: v["--ink"], primaryBorderColor: v["--edge"], lineColor: v["--edge"],
+        secondaryColor: v["--surface-2"], tertiaryColor: v["--surface"], textColor: v["--ink"], mainBkg: v["--bg"],
+        nodeBorder: v["--edge"], clusterBkg: v["--surface"], clusterBorder: v["--line"], titleColor: v["--ink"],
+        edgeLabelBackground: v["--surface"], noteBkgColor: v["--warn-soft"], noteTextColor: v["--ink"], noteBorderColor: v["--line"],
+        actorBkg: v["--bg"], actorBorder: v["--edge"], actorTextColor: v["--ink"], actorLineColor: v["--line"],
+        signalColor: v["--ink-2"], signalTextColor: v["--ink"], labelBoxBkgColor: v["--surface"], labelBoxBorderColor: v["--line"],
+        labelTextColor: v["--ink"], loopTextColor: v["--ink-2"], activationBkgColor: v["--surface-2"],
+        activationBorderColor: v["--edge"], sequenceNumberColor: v["--bg"],
+        attributeBackgroundColorOdd: v["--bg"], attributeBackgroundColorEven: v["--surface"] } };
+  }
   function renderMermaid() {
     const srcs = $$(".mermaid-src");
     if (!srcs.length) return;
@@ -553,24 +802,27 @@
       merP = new Promise((ok, ng) => {
         const s = document.createElement("script");
         s.src = "https://cdn.jsdelivr.net/npm/mermaid@11.4.1/dist/mermaid.min.js";
-        s.onload = () => {
-          const dark = matchMedia("(prefers-color-scheme: dark)").matches;
-          window.mermaid.initialize({ startOnLoad: false, theme: dark ? "dark" : "neutral", securityLevel: "strict",
-            fontFamily: getComputedStyle(document.body).fontFamily });
-          ok(window.mermaid);
-        };
+        s.onload = () => ok(window.mermaid);
         s.onerror = ng;
         document.head.appendChild(s);
       });
     }
     merP.then(async (mer) => {
+      mer.initialize(merTheme());
       for (const pre of srcs) {
         const code = pre.textContent;
+        const id = "m" + Math.random().toString(36).slice(2);
         try {
-          const { svg } = await mer.render("m" + Math.random().toString(36).slice(2), code);
+          // 読めない記述は描かせない。mermaid は描けなかったとき「Syntax error」の絵を body の末尾に残し、
+          // 話題を移っても消えずに画面の下を押し上げていた（2026-11-10 に erDiagram の日本語の名前で起きた）
+          if (!(await mer.parse(code, { suppressErrors: true }))) { pre.classList.add("bad"); continue; }
+          const { svg } = await mer.render(id, code);
           const fig = pre.parentElement;
-          fig.innerHTML = svg;
-        } catch (e) { pre.classList.add("bad"); }
+          fig.innerHTML = `<div class="mer-wrap">${svg}</div>`;
+        } catch (e) {
+          pre.classList.add("bad");
+          for (const x of [id, "d" + id, "i" + id]) document.getElementById(x)?.remove();
+        }
       }
     }).catch(() => {});
   }
@@ -641,6 +893,7 @@
   async function startRec(kind = null) {
     if (S.rec.phase !== "idle") return;
     if (!S.active) await newSession(false);
+    if (S.typedKind) typeFor(null);   // 声で話し始めたら、文字の欄の言い直しの待ちはやめる
     const it = kind ? {} : (S.intent || {});
     S.rec.phase = "starting";
     S.rec.kind = kind || it.kind || null;
@@ -663,6 +916,7 @@
       S.rec.phase = "idle";
       paintTalk();
       toast("マイクが使えませんでした。システム設定のプライバシーでマイクを許可してください。");
+      if (kind === "confirm") typeFor("confirm");   // 図を自分の言葉で言う: 文字で言えるようにする
     }
   }
 
@@ -760,10 +1014,10 @@
     if (startTalking) startRec();
   }
 
-  async function sendText(text, kind = "question", via = "text") {
+  async function sendText(text, kind = "question", via = "text", extra = {}) {
     if (!text.trim()) return;
     if (!S.active) await newSession(false);
-    await api("POST", `/api/sessions/${S.active}/text`, { text, kind, via });
+    await api("POST", `/api/sessions/${S.active}/text`, { text, kind, via, ...extra });
     await loadState();
     loadDetail(false);
   }
@@ -898,12 +1152,14 @@
   }
 
   document.addEventListener("click", async (e) => {
-    const el = e.target.closest("button, a, .node, mark.edit, .term");
+    const el = e.target.closest("button, a, .node[data-label], mark.edit, .term");   // mermaid の箱（.node）は除く
     if (!el) return;
     const d = el.dataset;
     if (el.classList.contains("sess")) { open(Number(d.id)); return; }
     if (el.id === "newSession") { newSession(true); return; }
     if (el.id === "nextBtn") { goNext(); return; }
+    if (el.id === "groundBtn") { askGround(); return; }
+    if (d.say) { sayInOwnWords(); return; }
     if (el.id === "talk") { if (S.rec.phase === "idle") startRec(S.rec.kind); else if (S.rec.phase === "recording") stopRec(true); return; }
     if (el.classList.contains("tab")) { S.sideTab = d.tab; paintSide(); return; }
     if (d.shelf) {
@@ -938,10 +1194,12 @@
     if (d.reveal) { reveal(Number(d.reveal)); return; }
     if (d.predict) { if (S.rec.phase === "idle") startRec(); return; }
     if (d.rcvoice) { if (S.rec.phase === "idle") startRec(); return; }
+    if (d.rchint) { askHint(Number(d.rchint)).catch((err) => toast("ヒントを出せませんでした: " + err.message)); return; }
     if (d.rcstate) {
       const id = Number(d.rcid);
       await api("POST", "/api/mastery", { check_id: id, state: d.rcstate });
       S.retDone.add(id);
+      S.opening = S.retSnap && S.retSnap.id === id ? S.retSnap.turn_id : null;
       S.showReturn = false;   // 戻ったときの確かめは、1回の戻りにつき1問だけ
       paintThread(false);
       paintRetCheck();
@@ -954,7 +1212,8 @@
     if (d.ask) { sendText(`${d.ask}を説明して`, "question", "click"); return; }
     if (d.redo) {
       const t = S.detail.turns.find((x) => x.id === Number(d.tid));
-      const name = t && t.views && t.views[0] ? t.views[0].name : "文だけ";
+      const mv = t && t.views ? t.views[mainIdx(t.views)] : null;   // たとえの塊は図に数えない
+      const name = mv ? mv.name : "文だけ";
       const msg = {
         short: ["直前の答えを短くして（3文まで、図は1つまで）", "短く"],
         other: [`直前の答えを、別の見せ方で見せ直して（中身は同じ。いまの「${name}」とは違う形を、見せ方の選び方の次に当てはまるものから選ぶ）`, "別の見せ方で"],
@@ -1012,8 +1271,9 @@
       e.preventDefault();
       const v = e.target.value;
       e.target.value = "";
-      sendText(v, S.rec.kind === "answer" ? "answer" : "question");
+      sendText(v, S.typedKind || (S.rec.kind === "answer" ? "answer" : "question"));
       S.rec.kind = null;
+      typeFor(null);
       paintTalk();
     }
   });

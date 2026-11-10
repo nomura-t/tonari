@@ -346,6 +346,330 @@ def test_key_prefs_are_whitelisted_and_conflicts_refused():
     assert appmod.key_prefs() == {}
 
 
+# ── 実物に結ぶ（v0.4 作業A）: たとえの塊の新しい決まり・判定役の結果・流れの実例 ──
+_AN_BODY = ("公開鍵暗号では、受け取る人が『公開鍵』と『秘密鍵』の組を作ります。送る人は公開鍵で暗号にし、"
+            "受け取る人だけが秘密鍵で元に戻せます。『暗号文』は途中で読まれても中身が分かりません。")
+
+
+def _an(pairs, **kw):
+    return {"name": "たとえ", "why": "閉めるのと開けるのが別の物なので", "by": "tutor", "source": "南京錠と鍵",
+            "target": "公開鍵暗号", "relation": "誰でも閉められるが、開けられるのは一人だけ", "pairs": pairs,
+            "unmapped": ["鍵の長さ"], "breaks": ["南京錠は配り直せないが、公開鍵は何度でも配れる"], **kw}
+
+
+_AN_PAIRS = [{"s": "開いた南京錠", "t": "公開鍵", "role": "誰でも閉められる"},
+             {"s": "手元の鍵", "t": "秘密鍵", "role": "持ち主だけが開けられる", "t_val": "2048ビット"},
+             {"s": "閉じた箱", "t": "暗号文", "role": "途中で開けられない"}]
+
+
+def test_analogy_pairs_must_be_names_found_in_the_body():
+    # 本文に無い実際の名前の対と、名前でなく文の対は捨てる。残りが2つ未満なら塊ごと捨てる（A4）
+    pairs = _AN_PAIRS[:2] + [{"s": "判子", "t": "電子署名", "role": "本人が押した印"},
+                             {"s": "南京錠は誰にでも配ってよいということ", "t": "公開鍵は誰に配っても安全だということ", "role": "配る"}]
+    v, why = tutor.verify_view("analogy", _an(pairs), _AN_BODY)
+    assert [p["t"] for p in v["pairs"]] == ["公開鍵", "秘密鍵"]
+    assert v["pairs"][1]["t_val"] == "2048ビット" and v["pairs"][0]["role"] == "誰でも閉められる"
+    assert v["relation"] and v["unmapped"] == ["鍵の長さ"] and v["by"] == "tutor"
+    assert any("本文に無い" in x for x in v["dropped"]) and any("文の対" in x for x in v["dropped"])
+    v, why = tutor.verify_view("analogy", _an([_AN_PAIRS[0], pairs[2]]), _AN_BODY)
+    assert v is None and "2つ未満" in why
+    # 本文の字は畳んで（NFKC・空白・大文字小文字）照らす
+    v, _ = tutor.verify_view("analogy", _an([{"s": "箱", "t": "ＴＣＰ"}, {"s": "札", "t": "ack"}]), "tcp は ACK を返す")
+    assert v and len(v["pairs"]) == 2
+    # 対は5つまで
+    many = [{"s": f"物{i}", "t": f"語{i}"} for i in range(7)]
+    v, _ = tutor.verify_view("analogy", _an(many), "".join(f"語{i}" for i in range(7)))
+    assert len(v["pairs"]) == 5
+
+
+def test_old_analogy_is_still_drawn_when_a_saved_answer_is_read_again():
+    # v0.4 より前に保存した答え（stage_ms に rules の印が無い）は、文の対でも本文に無い名前でも、前の決まりで描く
+    old = {"name": "たとえ", "source": "図書館", "target": "知識空間理論",
+           "pairs": [{"s": "棚に本が並ぶ順番", "t": "問題どうしの前提の関係"}, {"s": "貸し出しの記録", "t": "解けた問題の集合"}],
+           "breaks": ["本は増えるが問題の集合は固定"]}
+    md = "言い切り。\n\n" + _blk("analogy", old) + "\n\n本文。"
+    b = tutor.turn_blocks(md, {})
+    assert [v["type"] for v in b["views"]] == ["analogy"] and b["views"][0]["legacy"] and not b["errors"]
+    assert tutor.turn_blocks(md, {"rules": 4})["views"] == []       # v0.4 の答えなら捨てる
+    row = {"id": 1, "seq": 1, "via": "text", "status": "done", "error": None, "title": "t", "final_text": "q",
+           "fixed_text": None, "apple_text": None, "scribe_text": None, "haas_text": None, "audio_sec": None,
+           "created_at": 0, "done_at": 0, "edits_json": None, "unsure_json": None, "answer_md": md,
+           "stage_ms": '{"revealed_at": 1}', "ref_turn": None}
+    assert appmod.turn_view(row)["views"][0]["pairs"][0]["s"] == "棚に本が並ぶ順番"
+
+
+def test_pair_judge_result_is_applied_at_finish_and_on_reload():
+    import json as _j
+    from server import pipeline
+    db.init()
+    md = _AN_BODY + "\n\n" + _blk("analogy", _an(_AN_PAIRS)) + "\n\n公開鍵で暗号にした暗号文は、秘密鍵でだけ戻せます。"
+    with db.tx() as con:
+        con.execute("INSERT OR IGNORE INTO session(id, title, model, created_at, updated_at) VALUES(5,'t','opus',0,0)")
+        for i in (50, 51, 52):
+            con.execute("INSERT INTO turn(id, session_id, seq, via, status, created_at, final_text) VALUES(?,5,?,'text','thinking',0,'q')",
+                        (i, i))
+    # 1つを捨てても2つ残る
+    pipeline.finish(50, 5, md, "q", {"analogy": [{"checked": True, "res": ["ok", "ng", "ok"], "ng": ["秘密鍵"]}]})
+    # 2つ捨てると塊ごと捨てる
+    pipeline.finish(51, 5, md, "q", {"analogy": [{"checked": True, "res": ["ok", "ng", "ng"], "ng": ["秘密鍵", "暗号文"]}]})
+    # 判定役が取れなかったら出して、確かめていない印
+    pipeline.finish(52, 5, md, "q", {"analogy": [{"checked": False}]})
+    with db.tx() as con:
+        rows = {r["id"]: r for r in db.rows(con, "SELECT * FROM turn WHERE id IN (50,51,52)")}
+        saved = db.rows(con, "SELECT turn_id, source, by FROM analogy WHERE session_id=5 ORDER BY id")
+    v50 = appmod.turn_view(rows[50])["views"]
+    assert [p["t"] for p in v50[0]["pairs"]] == ["公開鍵", "暗号文"] and v50[0]["checked"] is True
+    st50 = _j.loads(rows[50]["stage_ms"])
+    assert st50["rules"] == 4 and any("秘密鍵" in e for e in st50["block_errors"])
+    assert appmod.turn_view(rows[51])["views"] == []
+    assert any("2つ未満" in e for e in _j.loads(rows[51]["stage_ms"])["block_errors"])
+    v52 = appmod.turn_view(rows[52])["views"]
+    assert len(v52[0]["pairs"]) == 3 and v52[0]["checked"] is False
+    # 画面に出した塊だけが話題のたとえとして残り、次の往復で先生役に渡る（A8）
+    assert [(r["turn_id"], r["source"], r["by"]) for r in saved] == [(50, "南京錠と鍵", "tutor"), (52, "南京錠と鍵", "tutor")]
+    content = tutor.turn_content(5, "次の問い", "question", "text", [])
+    assert "<この話題のたとえ>元の世界: 南京錠と鍵（先生役のたとえ）" in content and "開いた南京錠＝公開鍵" in content
+
+
+def test_flow_example_runs_through_every_step_or_none():
+    steps = [{"label": "キャッシュを見る", "ex": "無かった"}, {"label": "リゾルバに頼む", "ex": "8.8.8.8 へ送る"},
+             {"label": "答えを返す", "ex": "93.184.215.14"}]
+    v, _ = tutor.verify_view("flow", {"case": "example.com を引く", "steps": steps})
+    assert v["case"] == "example.com を引く" and [s["ex"] for s in v["steps"]] == ["無かった", "8.8.8.8 へ送る", "93.184.215.14"]
+    v, _ = tutor.verify_view("flow", {"case": "example.com を引く", "steps": steps[:2] + [{"label": "答えを返す"}]})
+    assert "case" not in v and all("ex" not in s for s in v["steps"])
+    # 8段に切ったあとの段で決める（9段目にだけ実例が無くても、残した8段に全部あれば通す）
+    nine = [{"label": f"段{i}", "ex": f"値{i}"} for i in range(8)] + [{"label": "段8"}]
+    v, _ = tutor.verify_view("flow", {"case": "例", "steps": nine})
+    assert len(v["steps"]) == 8 and all(s.get("ex") for s in v["steps"]) and v["case"] == "例"
+
+
+def test_main_view_skips_analogy_and_pair_judge_parse():
+    import asyncio
+    from server import judge
+    views = [{"type": "analogy", "name": "たとえ"}, {"type": "flow", "name": "流れ"}]
+    assert tutor.main_view(views)["type"] == "flow" and tutor.main_view(views[:1]) is None
+    assert judge.parse_pairs('{"results": ["ok", "ng"]}', 2) == ["ok", "ng"]
+    assert judge.parse_pairs('{"results": ["ok"]}', 2) is None and judge.parse_pairs("読めない", 1) is None
+    assert judge.parse_pairs('```json\n{"results": ["ok", "maybe"]}\n```', 2) is None
+
+    class Down:
+        async def take(self):
+            raise RuntimeError("判定役が立たない")
+    keep = judge.PAIR_POOL
+    judge.PAIR_POOL = Down()
+    try:
+        out = asyncio.run(judge.check_pairs(_AN_BODY, [{"pairs": _AN_PAIRS, "source": "南京錠と鍵"}]))
+    finally:
+        judge.PAIR_POOL = keep
+    assert out == [{"checked": False}]
+    assert "共通する働き「誰でも閉められる」" in judge.pair_input(_AN_BODY, {"pairs": _AN_PAIRS, "source": "s", "target": "t"})
+
+
+def test_ground_click_is_marked_on_the_turn(monkeypatch):
+    # A10: 「実際には何のこと？」は via=click で送り、往復に ground の印を残す（押した回数を数えるため）
+    import json as _j
+    from fastapi.testclient import TestClient
+    monkeypatch.setattr(appmod.pipeline, "spawn", lambda coro: coro.close())   # 先生役は呼ばない
+    c = TestClient(appmod.app, base_url=f"http://127.0.0.1:{appmod.config.PORT}")
+    h = {"X-Tonari": "1"}
+    sid = c.post("/api/sessions", headers=h, json={}).json()["id"]
+    q = "『リゾルバ』は、実際には何のことですか。実際の名前と、実際の値か実例で、短く答えてください"
+    tid = c.post(f"/api/sessions/{sid}/text", headers=h, json={"text": q, "via": "click", "ground": True}).json()["turn_id"]
+    tid2 = c.post(f"/api/sessions/{sid}/text", headers=h, json={"text": "ふつうの問い", "ground": True}).json()["turn_id"]
+    with db.tx() as con:
+        r = db.row(con, "SELECT via, stage_ms FROM turn WHERE id=?", (tid,))
+        r2 = db.row(con, "SELECT via, stage_ms FROM turn WHERE id=?", (tid2,))
+    assert r["via"] == "click" and _j.loads(r["stage_ms"])["ground"] is True
+    assert r2["stage_ms"] is None        # 文字の欄から送った問いには付けない
+
+
+# ── しくみの絵（v0.4 作業B の B2）: 部品は本文にある名前だけ・やりとりの両端は部品・入れ子は1段・実例は全部か無しか ──
+_PT_BODY = ("『ブラウザ』は URL の名前を『DNS リゾルバ』に問い合わせて IP アドレスを受け取り、その住所の『Web サーバー』に"
+            "HTTP の要求を送ります。ブラウザの中では『レンダラ』が届いた HTML を画面に描きます。")
+
+
+def _pt(parts, links, **kw):
+    return {"name": "しくみの絵", "why": "部品の間で名前と住所とページが渡るので", "parts": parts, "links": links, **kw}
+
+
+_PT_PARTS = [{"id": "br", "label": "ブラウザ"}, {"id": "dns", "label": "DNS リゾルバ", "note": "名前を住所にする"},
+             {"id": "web", "label": "Web サーバー"}, {"id": "rd", "label": "レンダラ", "in": "br"}]
+_PT_LINKS = [{"from": "br", "to": "dns", "label": "名前を問う", "ex": "example.com"},
+             {"from": "dns", "to": "br", "label": "住所を返す", "ex": "93.184.215.14"},
+             {"from": "br", "to": "web", "label": "要求を送る", "ex": "GET /"},
+             {"from": "web", "to": "rd", "label": "HTML を返す", "ex": "index.html"}]
+
+
+def test_parts_keep_only_parts_named_in_the_body_and_links_between_them():
+    parts = _PT_PARTS + [{"id": "cdn", "label": "CDN"}, {"id": "lb", "label": "ロードバランサ"}]
+    links = _PT_LINKS + [{"from": "br", "to": "cdn", "label": "画像を取る"}, {"from": "web", "to": "nowhere", "label": "x"},
+                         {"from": "dns", "to": "dns", "label": "自分に聞く"}, {"from": "ブラウザ", "to": "Web サーバー", "label": "名前で指す"}]
+    v, why = tutor.verify_view("parts", _pt(parts, links, case="example.com を開く"), _PT_BODY)
+    assert [p["id"] for p in v["parts"]] == ["br", "dns", "web", "rd"]            # 本文に無い CDN・ロードバランサは捨てる
+    assert [(l["from"], l["to"]) for l in v["links"]] == [("br", "dns"), ("dns", "br"), ("br", "web"), ("web", "rd"), ("br", "web")]
+    assert v["parts"][1]["note"] == "名前を住所にする" and v["parts"][3]["in"] == "br"
+    d = v["dropped"]
+    assert any("『CDN』が本文に無い" in x for x in d) and sum("両端が部品に無い" in x for x in d) == 2
+    assert any("自分から自分" in x for x in d)
+    # 実例は全部のやりとりにあるときだけ残す（名前で指した5本目に ex が無いので、全部から外し、case も出さない）
+    assert all("ex" not in l for l in v["links"]) and "case" not in v
+    v, _ = tutor.verify_view("parts", _pt(_PT_PARTS, _PT_LINKS, case="example.com を開く"), _PT_BODY)
+    assert [l["ex"] for l in v["links"]] == ["example.com", "93.184.215.14", "GET /", "index.html"] and v["case"] == "example.com を開く"
+    assert "dropped" not in v
+    # 部品が2つ未満・やりとりが無いなら塊ごと捨てる
+    v, why = tutor.verify_view("parts", _pt([_PT_PARTS[0], {"id": "x", "label": "本文に無い部品"}], _PT_LINKS[:1]), _PT_BODY)
+    assert v is None and "2つ未満" in why
+    v, why = tutor.verify_view("parts", _pt(_PT_PARTS[:2], [{"from": "br", "to": "zz", "label": "x"}]), _PT_BODY)
+    assert v is None and "やりとりが無い" in why
+    # 本文との照らしは畳んだ字（NFKC・空白・大小）で
+    v, _ = tutor.verify_view("parts", _pt([{"id": "a", "label": "ＤＮＳリゾルバ"}, {"id": "b", "label": "web サーバー"}],
+                                           [{"from": "a", "to": "b", "label": "x"}]), _PT_BODY)
+    assert v and len(v["parts"]) == 2
+
+
+def test_parts_nesting_is_one_level_and_bad_parents_are_removed():
+    parts = [{"id": "os", "label": "ブラウザ"}, {"id": "a", "label": "レンダラ", "in": "os"},
+             {"id": "b", "label": "DNS リゾルバ", "in": "a"},           # 2段目（親のレンダラにも親がある）
+             {"id": "c", "label": "Web サーバー", "in": "c"}]           # 自分自身
+    v, _ = tutor.verify_view("parts", _pt(parts + [{"id": "d", "label": "HTML", "in": "ghost"}],   # 無い親
+                                          [{"from": "os", "to": "c", "label": "x"}]), _PT_BODY)
+    got = {p["id"]: p.get("in") for p in v["parts"]}
+    assert got == {"os": None, "a": "os", "b": None, "c": None, "d": None}
+    assert sum("入れ子を外した" in x for x in v["dropped"]) == 3
+    # 互いを親にした2つは、どちらも2段目なので両方外す（決まった答えになる）
+    v, _ = tutor.verify_view("parts", _pt([{"id": "a", "label": "ブラウザ", "in": "b"}, {"id": "b", "label": "レンダラ", "in": "a"}],
+                                          [{"from": "a", "to": "b", "label": "x"}]), _PT_BODY)
+    assert all("in" not in p for p in v["parts"])
+    # 部品は6つまで・やりとりは8つまで（並んだ順のまま）
+    six = "".join(f"『部品{i}』" for i in range(8))
+    many = [{"id": f"p{i}", "label": f"部品{i}"} for i in range(8)]
+    lk = [{"from": f"p{i % 6}", "to": f"p{(i + 1) % 6}", "label": f"渡す{i}"} for i in range(10)]
+    v, _ = tutor.verify_view("parts", _pt(many, lk), six)
+    assert len(v["parts"]) == 6 and [l["label"] for l in v["links"]] == [f"渡す{i}" for i in range(8)]
+
+
+def test_parts_block_in_an_answer_is_drawn_and_partial_drops_are_logged():
+    md = _PT_BODY + "\n\n" + _blk("parts", _pt(_PT_PARTS + [{"id": "cdn", "label": "CDN"}], _PT_LINKS)) + "\n\n本文の続き。"
+    b = tutor.parse_blocks(md)
+    assert [v["type"] for v in b["views"]] == ["parts"] and b["views"][0]["name"] == "しくみの絵"
+    assert any(e.startswith("tonari-parts: 一部を捨てた") and "CDN" in e for e in b["errors"])
+    assert tutor.main_view(b["views"])["type"] == "parts"
+    # 本文の名前は塊の外で照らす（塊の中にだけ出る名前の部品は捨てる）
+    md2 = "答え。\n\n" + _blk("parts", _pt(_PT_PARTS, _PT_LINKS))
+    b2 = tutor.parse_blocks(md2)
+    assert b2["views"] == [] and any("しくみの絵: 部品が2つ未満" in e for e in b2["errors"])
+
+
+# ── ヒントつきの確かめ（v0.4 作業B の C1・C2・C3） ──
+def test_hints_containing_the_answer_are_dropped_and_kept_to_two():
+    md = "DNS は名前を IP アドレスに変えます。\n\n" + _blk("check", [])
+    keep, dropped = tutor.filter_checks([
+        {"q": "もし住所が返らなかったら？", "a": "要求を送れずに止まる", "type": "もしも",
+         "hints": ["次に何ができないかを考える", "答えは、要求を送れずに止まる", "宛先が決まらない段を探す", "4つ目"]},
+        {"q": "短い答え", "a": "止まる", "type": "もしも", "hints": ["止まるかどうか", 5, "", "  "]},   # 4字未満の答えは照らさない
+        {"q": "ヒントの無い問い", "a": "どこかで止まる", "type": "当てはめ"},
+    ], md)
+    assert keep[0]["hints"] == ["次に何ができないかを考える", "宛先が決まらない段を探す"]   # 答えを含む段を外し、2段まで
+    assert keep[1]["hints"] == ["止まるかどうか"] and keep[2]["hints"] == []
+    assert sum(d.startswith("確かめのヒントを外した") for d in dropped) == 1
+    # 外す・残すの照らしは畳んだ字（全角・空白）で
+    assert tutor.filter_hints(["ヒントは Ｇｅｔ です"], db.fold("GET /"))[0] == ["ヒントは Ｇｅｔ です"]
+    assert tutor.filter_hints(["ヒントは ＧＥＴ/ です"], db.fold("GET /"))[1] == 1
+
+
+def test_hint_columns_are_added_to_an_old_db(monkeypatch, tmp_path):
+    import sqlite3
+    from server import config
+    old = tmp_path / "old.db"
+    con = sqlite3.connect(old)
+    con.execute("CREATE TABLE checkq (id INTEGER PRIMARY KEY, turn_id INTEGER NOT NULL, session_id INTEGER NOT NULL, "
+                "q TEXT NOT NULL, a TEXT, concept TEXT, target TEXT, rel TEXT, status TEXT NOT NULL DEFAULT 'open', created_at REAL NOT NULL)")
+    con.execute("INSERT INTO checkq(turn_id, session_id, q, created_at) VALUES(1, 1, '前の問い', 0)")
+    con.commit()
+    con.close()
+    monkeypatch.setattr(config, "DB_PATH", old)
+    db.init()
+    with db.tx() as c2:
+        names = {r["name"] for r in c2.execute("PRAGMA table_info(checkq)").fetchall()}
+        r = db.row(c2, "SELECT hints, hints_used, qtype FROM checkq")
+    assert {"qtype", "hints", "hints_used"} <= names and r == {"hints": None, "hints_used": 0, "qtype": None}
+
+
+def test_return_check_gives_hints_one_step_at_a_time_and_recall_is_attached():
+    import json as _j
+    from fastapi.testclient import TestClient
+    db.init()   # 話題の番号は、ほかの試験が API で作る話題と重ならない 60 にする
+    now = db.now()
+    with db.tx() as con:
+        con.execute("INSERT OR IGNORE INTO session(id, title, model, created_at, updated_at) VALUES(60,'t','opus',0,0)")
+        con.execute("INSERT INTO turn(id, session_id, seq, via, status, created_at, done_at, final_text, stage_ms) "
+                    "VALUES(600,60,1,'text','done',?,?,'問い',?)", (now - 3 * 86400 - 400, now - 3 * 86400 - 300,
+                                                                 _j.dumps({"revealed_at": now - 3 * 86400 - 200})))
+        [c] = tutor.save_checks(con, 60, 600, [{"q": "もし順番が逆なら？", "a": "後ろの段が止まる", "type": "もしも",
+                                             "hints": ["何が先に要るかを考える", "前の段が作る物を思い出す"]}])
+    cl = TestClient(appmod.app, base_url=f"http://127.0.0.1:{appmod.config.PORT}")
+    h = {"X-Tonari": "1"}
+    rc = cl.get("/api/sessions/60", headers=h).json()["return_check"]
+    assert rc["id"] == c["id"] and rc["hints_n"] == 2 and rc["hints"] == []     # まだ出していない段の文は渡さない
+    assert cl.post(f"/api/checks/{c['id']}/hint", headers=h).json()["hints"] == ["何が先に要るかを考える"]
+    assert cl.get("/api/sessions/60", headers=h).json()["return_check"]["hints"] == ["何が先に要るかを考える"]
+    for _ in range(2):   # 2段より先は増えない
+        r = cl.post(f"/api/checks/{c['id']}/hint", headers=h).json()
+    assert r["hints"] == ["何が先に要るかを考える", "前の段が作る物を思い出す"]
+    with db.tx() as con:
+        assert db.row(con, "SELECT hints_used FROM checkq WHERE id=?", (c["id"],))["hints_used"] == 2
+        assert db.row(con, "SELECT COUNT(*) AS n FROM log WHERE kind='hint' AND target=?", (c["id"],))["n"] == 2
+        # 戻ったときの問いに答えた往復（kind=answer・check_id）
+        con.execute("INSERT INTO turn(id, session_id, seq, via, status, created_at, done_at, final_text, stage_ms) "
+                    "VALUES(601,60,2,'voice','done',?,?,'答え',?)", (now, now, _j.dumps({"kind": "answer", "check_id": c["id"]})))
+    turns = cl.get("/api/sessions/60", headers=h).json()["turns"]
+    assert "recall" not in turns[0]
+    assert turns[1]["recall"]["text"] == "読んでから3日あけて、何も見ずに言えた（ヒント2段）"
+    assert appmod.gap_text(2 * 3600 + 5) == "2時間" and appmod.gap_text(30) == "1分" and appmod.gap_text(59 * 60) == "59分"
+
+
+def test_usage_stats_counts_numbers_only_and_opens_read_only(tmp_path):
+    import json as _j
+    import sqlite3
+    import subprocess
+    import sys
+    from tests import usage_stats
+    p = tmp_path / "tonari.db"
+    con = sqlite3.connect(p)
+    con.execute("CREATE TABLE turn (id INTEGER PRIMARY KEY, session_id INTEGER, seq INTEGER, via TEXT, status TEXT, stage_ms TEXT, created_at REAL)")
+    con.execute("CREATE TABLE checkq (id INTEGER PRIMARY KEY, status TEXT, hints TEXT, hints_used INTEGER)")
+    day = 86400
+    rows = [(1, 1, 1, "voice", "done", {"shapes": [{"type": "flow"}, {"type": "analogy"}]}, 0),
+            (2, 1, 2, "click", "done", {"ground": True}, 10),
+            (3, 1, 3, "voice", "superseded", {}, 20),                       # 予想の往復は数えない
+            (4, 2, 1, "text", "done", {"shapes": [{"type": "parts"}]}, 2 * day),
+            (5, 2, 2, "click", "error", {"ground": True}, 2 * day + 5)]
+    for r in rows:
+        con.execute("INSERT INTO turn VALUES(?,?,?,?,?,?,?)", (*r[:5], _j.dumps(r[5]), r[6] + 1_700_000_000))
+    for s, hs, used in [("answered", ["a", "b"], 2), ("skipped", [], 0), ("open", ["a"], 1), ("unknown", None, 0)]:
+        con.execute("INSERT INTO checkq(status, hints, hints_used) VALUES(?,?,?)", (s, _j.dumps(hs) if hs is not None else None, used))
+    con.commit()
+    con.close()
+    ro = usage_stats.open_ro(p)
+    s = usage_stats.stats(ro)
+    try:
+        ro.execute("DELETE FROM turn")
+        wrote = True
+    except sqlite3.OperationalError:
+        wrote = False
+    ro.close()
+    assert wrote is False
+    assert (s["days_used"], s["turns"], s["turns_done"]) == (2, 4, 3)
+    assert s["turns_by_via"] == {"voice": 1, "text": 1, "click": 2}
+    assert (s["checks"], s["checks_answered"], s["checks_skipped"], s["checks_open"], s["answer_rate"]) == (4, 2, 1, 1, 0.5)
+    assert (s["hints_used_total"], s["checks_with_hints"]) == (3, 2)
+    assert (s["ground_clicks"], s["ground_after_analogy"], s["turns_with_analogy"], s["turns_with_parts"]) == (2, 1, 1, 1)
+    out = subprocess.run([sys.executable, "tests/usage_stats.py", "--db", str(p)], capture_output=True, text=True,
+                         cwd=Path(__file__).parent.parent).stdout
+    assert "答えた率: 50%" in out and "使った日数: 2" in out
+
+
 def test_event_streams_end_on_close_and_do_not_reopen():
     """止めるときに画面への流れを終わらせ、つなぎ直しも受けない（つながったままだと uvicorn が止まりきらない）。"""
     import asyncio
@@ -368,3 +692,112 @@ def test_event_streams_end_on_close_and_do_not_reopen():
         assert asyncio.run(run()) == []
     finally:
         events._closed = False
+
+
+def test_resume_plan_keeps_the_conversation_only_while_the_instructions_are_the_same(monkeypatch):
+    # claude -p の --resume は会話を始めたときの指示を使い続ける（2026-11-10・claude 2.1.322）。印が今の指示と同じ会話だけ続ける
+    sig = tutor.prompt_sig()
+    assert tutor.resume_plan(None, None, sig) == (None, False)        # まだ会話が無い話題
+    assert tutor.resume_plan("c-1", sig, sig) == ("c-1", False)       # 今の指示で始めた会話は続ける
+    assert tutor.resume_plan("c-1", None, sig) == (None, True)        # v0.4 より前に始めた会話（印が無い）
+    assert tutor.resume_plan("c-1", "0" * 16, sig) == (None, True)    # 指示が変わった
+    monkeypatch.setattr(corpus, "catalog", lambda: "id1｜題｜棚｜2026-11-10")
+    assert tutor.prompt_sig() == sig                                    # 棚の目録が変わっても印は変わらない
+
+
+def test_recap_has_the_prose_of_earlier_turns_without_blocks():
+    old = {"name": "たとえ", "source": "店の伝票差し", "target": "待ち行列",
+           "pairs": [{"s": "伝票を差す", "t": "仕事を積む"}, {"s": "伝票を取る", "t": "仕事を取り出す"}], "breaks": ["伝票は減らない"]}
+    md1 = "一つ目の答え。\n\n" + _blk("analogy", old) + "\n\n```tonari-check\n[{\"q\": \"もしも？\", \"a\": \"止まる\"}]\n```"
+    db.init()
+    with db.tx() as con:
+        con.execute("INSERT OR IGNORE INTO session(id, title, model, created_at, updated_at) VALUES(70,'t','opus',0,0)")
+        con.execute("INSERT INTO turn(id, session_id, seq, via, status, created_at, final_text, answer_md, stage_ms) "
+                    "VALUES(700,70,1,'text','done',0,'一つ目の問い',?,'{}')", (md1,))
+        con.execute("INSERT INTO turn(id, session_id, seq, via, status, created_at, final_text) VALUES(701,70,2,'text','superseded',0,'消した問い')")
+        con.execute("INSERT INTO turn(id, session_id, seq, via, status, created_at, final_text, answer_md, stage_ms) "
+                    "VALUES(702,70,3,'text','done',0,'二つ目の問い','二つ目の答え。','{\"rules\": 4}')")
+    assert tutor.recap_text(70, 1) is None
+    r = tutor.recap_text(70, 4)
+    assert r.startswith("<これまでの会話>") and r.endswith("</これまでの会話>") and "話題の最初の答えではありません" in r
+    assert "```" not in r and "もしも？" not in r and "消した問い" not in r       # 塊（古い形）と畳んだ往復は入れない
+    assert "（図: たとえ（元の世界: 店の伝票差し））" in r
+    assert r.index("本人: 一つ目の問い") < r.index("本人: 二つ目の問い")
+    c = tutor.turn_content(70, "三つ目の問い", "question", "text", [], recap=r)
+    assert c.startswith("<これまでの会話>") and "<本人の発言 種類=question 経路=text>\n三つ目の問い" in c
+    assert not tutor.turn_content(70, "三つ目の問い", "question", "text", []).startswith("<これまでの会話>")
+
+
+def test_old_conversation_is_restarted_with_a_recap_and_then_resumed(monkeypatch):
+    import asyncio
+    import json as _j
+    from server import brain, pipeline
+    db.init()
+    with db.tx() as con:   # v0.4 より前に始めた会話（claude_sid はあるが指示の印が無い）
+        con.execute("INSERT OR IGNORE INTO session(id, title, model, claude_sid, created_at, updated_at) VALUES(71,'t','opus','old-conv',0,0)")
+        con.execute("INSERT INTO turn(id, session_id, seq, via, status, created_at, final_text, answer_md, stage_ms) "
+                    "VALUES(710,71,1,'text','done',0,'前の問い','前の答え。','{}')")
+        for tid, seq in ((711, 2), (712, 3)):
+            con.execute("INSERT INTO turn(id, session_id, seq, via, status, created_at, final_text) VALUES(?,71,?,'text','recorded',0,'問い')",
+                        (tid, seq))
+    started = []
+
+    class Fake:
+        alive = False
+
+        def __init__(self, resume):
+            self.resume_sid = resume
+            self.content = None
+
+        async def ask(self, content):
+            self.content = content
+            yield ("sid", self.resume_sid or "new-conv")
+            yield ("text", "答えです。")
+
+    def get(sid, prompt, model, resume):
+        started.append(Fake(resume))
+        return started[-1]
+    monkeypatch.setattr(brain.TUTORS, "get", get)
+    asyncio.run(pipeline.ask_tutor(711, "問い", "question", "text", [], {}))
+    asyncio.run(pipeline.ask_tutor(712, "問い", "question", "text", [], {}))
+    assert started[0].resume_sid is None and started[0].content.startswith("<これまでの会話>") and "前の答え。" in started[0].content
+    assert started[1].resume_sid == "new-conv" and "<これまでの会話>" not in started[1].content
+    with db.tx() as con:
+        s = db.row(con, "SELECT claude_sid, prompt_sig FROM session WHERE id=71")
+        st = {r["id"]: _j.loads(r["stage_ms"]) for r in db.rows(con, "SELECT id, stage_ms FROM turn WHERE id IN (711, 712)")}
+    assert s == {"claude_sid": "new-conv", "prompt_sig": tutor.prompt_sig()}
+    assert st[711].get("fresh_prompt") is True and "fresh_prompt" not in st[712]
+
+
+def test_prompt_sig_column_is_added_to_an_old_db(monkeypatch, tmp_path):
+    import sqlite3
+    from server import config
+    old = tmp_path / "old.db"
+    con = sqlite3.connect(old)
+    con.execute("CREATE TABLE session (id INTEGER PRIMARY KEY, title TEXT NOT NULL DEFAULT '新しい話題', model TEXT NOT NULL, "
+                "claude_sid TEXT, created_at REAL NOT NULL, updated_at REAL NOT NULL, read_at REAL NOT NULL DEFAULT 0, "
+                "archived INTEGER NOT NULL DEFAULT 0)")
+    con.execute("INSERT INTO session(model, claude_sid, created_at, updated_at) VALUES('opus', 'old-conv', 0, 0)")
+    con.commit()
+    con.close()
+    monkeypatch.setattr(config, "DB_PATH", old)
+    db.init()
+    with db.tx() as c2:
+        r = db.row(c2, "SELECT claude_sid, prompt_sig, detail FROM session")
+    assert r == {"claude_sid": "old-conv", "prompt_sig": None, "detail": "auto"}
+
+
+def test_judge_gets_the_question_that_was_asked_when_two_share_concept_target_rel():
+    from server import judge
+    db.init()
+    with db.tx() as con:
+        con.execute("INSERT OR IGNORE INTO session(id, title, model, created_at, updated_at) VALUES(72,'t','opus',0,0)")
+        a, b = tutor.save_checks(con, 72, 720, [
+            {"q": "古いほうの問い", "a": "古いほうの想定", "concept": "X", "target": "Y", "rel": "related", "type": "もしも"},
+            {"q": "新しいほうの問い", "a": "新しいほうの想定", "concept": "X", "target": "Y", "rel": "related", "type": "当てはめ"}])
+    g = [{"concept": "X", "target": "Y", "rel": "related", "result": "hit"}]
+    asked = judge.build_input(72, g, "答え", a["id"])   # 戻ったときに出したのは古いほう（return_check は古い順）
+    assert "問い: 古いほうの問い" in asked and "想定の答え: 古いほうの想定" in asked and "新しいほう" not in asked
+    assert "問い: 新しいほうの問い" in judge.build_input(72, g, "答え")   # 問いの決まらない往復は、同じ組の新しい問い
+    other = [{"concept": "別", "target": "組", "rel": "broader", "result": "hit"}]
+    assert "問い: 古いほうの問い" in judge.build_input(72, other, "答え", a["id"])   # 判定の組が問いと違っても、答えた問いを渡す

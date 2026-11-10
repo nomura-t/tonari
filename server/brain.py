@@ -6,6 +6,8 @@ Claude の API キーは使わない。子の環境から ANTHROPIC_* を外し�
 先生役（Tutor）は話題ごとに1本を常駐させ、`--restricted --tools Read,Grep,Glob` で作業フォルダ（棚の本文の写し）
 だけを読めるようにする。会話は Claude Code の記録に残し（--no-session-persistence を付けない）、閉じたあとは
 `--resume <会話の id>` で続きから始める（2026-10-29 に stream-json の入力で再開できることを確かめた）。
+`--resume` した会話は、会話を始めたときの指示を使い続け、`--system-prompt-file` を渡し直しても替わらない（2026-11-10・
+claude 2.1.322 で確かめた）。指示が変わった話題は、続けるかどうかを pipeline.ask_tutor が tutor.resume_plan で決める。
 整形役（Spare）は温めた予備を1回だけ使って閉じる（話題をまたいで文脈を持ち越さない）。
 """
 import asyncio

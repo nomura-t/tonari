@@ -78,6 +78,7 @@ async def shutdown():
     await brain.TUTORS.close_all()
     await fixer.POOL.close()
     await judge.POOL.close()
+    await judge.PAIR_POOL.close()
 
 
 @app.post("/api/shutdown")
@@ -171,7 +172,8 @@ def turn_view(t: dict) -> dict:
     v["edits"] = json.loads(t["edits_json"] or "[]")
     v["unsure"] = json.loads(t["unsure_json"] or "[]")
     st = json.loads(t["stage_ms"] or "{}")
-    v["stage"] = {k: st.get(k) for k in ("stt", "fix", "tutor", "scribe_mode", "local_mode", "second", "fix_fallback", "stt_errors", "block_errors")}
+    v["stage"] = {k: st.get(k) for k in ("stt", "fix", "tutor", "pair_judge", "scribe_mode", "local_mode", "second",
+                                         "fix_fallback", "stt_errors", "block_errors", "ground")}
     v["grades"] = st.get("grades") or []
     v["center"] = st.get("center")
     v["ref_turn"] = t.get("ref_turn")
@@ -179,8 +181,9 @@ def turn_view(t: dict) -> dict:
     v["revealed_at"] = st.get("revealed_at")
     v["kind"] = st.get("kind")
     v["predict"] = st.get("predict")
+    v["check_id"] = st.get("check_id")   # 戻ったときの確かめの問いに答えた往復なら、その問い
     if t["answer_md"]:
-        b = tutor.parse_blocks(t["answer_md"])
+        b = tutor.turn_blocks(t["answer_md"], st)   # v0.4 より前の答えは前の決まりで・判定役の結果は毎回当てる
         v["answer"] = b["text"]          # 図の置き場所は [[view:N]]
         v["views"] = b["views"]
         v["map"] = b["map"]
@@ -203,13 +206,49 @@ async def api_session(sid: int):
         by_turn.setdefault(c["turn_id"], []).append(c)
     for v in views:
         v["checks"] = by_turn.get(v["id"], [])
+    attach_recall(views, checks)
     return {"session": s, "turns": views, "return_check": return_check(views, checks)}
+
+
+def _hints(c: dict) -> list[str]:
+    try:
+        h = json.loads(c.get("hints") or "[]")
+    except ValueError:
+        return []
+    return [x for x in h if isinstance(x, str)] if isinstance(h, list) else []
+
+
+def gap_text(sec: float) -> str:
+    """間の長さを、1日以上なら日、1時間以上なら時間、それより短ければ分で（C2）。"""
+    sec = max(0.0, sec)
+    if sec >= 86400:
+        return f"{int(sec // 86400)}日"
+    if sec >= 3600:
+        return f"{int(sec // 3600)}時間"
+    return f"{max(1, int(sec // 60))}分"
+
+
+def attach_recall(views: list[dict], checks: list[dict]) -> None:
+    """戻ったときの確かめに答えた往復に、元の答えを開いてから答えるまでの間とヒントの段数を付ける（C2）。
+    画面は、判定が当たりで記録されたときだけ「読んでから○日あけて、何も見ずに言えた」と出す。"""
+    by_id = {c["id"]: c for c in checks}
+    revealed = {v["id"]: v.get("revealed_at") for v in views}
+    for v in views:
+        c = by_id.get(v.get("check_id")) if v.get("check_id") else None
+        r = revealed.get(c["turn_id"]) if c else None
+        if not c or not r or v.get("kind") != "answer":
+            continue
+        gap = (v.get("created_at") or 0) - r
+        hints = int(c.get("hints_used") or 0)
+        v["recall"] = {"gap_sec": gap, "hints": hints,
+                       "text": f"読んでから{gap_text(gap)}あけて、何も見ずに言えた" + (f"（ヒント{hints}段）" if hints else "")}
 
 
 def return_check(views: list[dict], checks: list[dict]) -> dict | None:
     """戻ったときに出す確かめの問い。型のある（v0.3 以降の）開いた問いのうち古いものを1つ。
 
-    直近に済んだ3問がすべて「飛ばした」なら、この話題では出さない（煩わしさの見張り。研究 d の 5-13）。"""
+    直近に済んだ3問がすべて「飛ばした」なら、この話題では出さない（煩わしさの見張り。研究 d の 5-13）。
+    ヒント（C1）は段の数と、本人がすでに出した段の文だけを渡す（まだ出していない段は /api/checks/:id/hint で1段ずつ）。"""
     typed = [c for c in checks if c.get("qtype")]
     done = [c for c in typed if c["status"] != "open"]
     if len(done) >= 3 and all(c["status"] == "skipped" for c in done[-3:]):
@@ -219,8 +258,26 @@ def return_check(views: list[dict], checks: list[dict]) -> dict | None:
     for c in typed:
         r = revealed.get(c["turn_id"])
         if c["status"] == "open" and r and now - r >= config.RETURN_AFTER_SEC:
-            return {"id": c["id"], "q": c["q"], "qtype": c["qtype"], "turn_id": c["turn_id"]}
+            hs, used = _hints(c), int(c.get("hints_used") or 0)
+            return {"id": c["id"], "q": c["q"], "qtype": c["qtype"], "turn_id": c["turn_id"],
+                    "hints_n": len(hs), "hints": hs[:used]}
     return None
+
+
+@app.post("/api/checks/{cid}/hint")
+async def api_hint(cid: int):
+    """戻ったときの確かめのヒントを1段だけ足して出し、出した段の数を記録する（C1）。"""
+    with db.tx() as con:
+        c = db.row(con, "SELECT * FROM checkq WHERE id=?", (cid,))
+        if not c:
+            raise HTTPException(404, "問いがありません")
+        hs = _hints(c)
+        used = min(len(hs), int(c.get("hints_used") or 0) + 1)
+        if used != int(c.get("hints_used") or 0):
+            con.execute("UPDATE checkq SET hints_used=? WHERE id=?", (used, cid))
+            con.execute("INSERT INTO log(kind, target, state, turn_id, at) VALUES('hint',?,?,?,?)",
+                        (cid, str(used), c["turn_id"], db.now()))
+    return {"hints": hs[:used], "hints_n": len(hs)}
 
 
 @app.post("/api/turns/{tid}/reveal")
@@ -289,8 +346,13 @@ async def api_text(sid: int, req: Request):
     with db.tx() as con:
         extra = {"ref_turn": int(ref)} if isinstance(ref, int) and db.row(con, "SELECT id FROM turn WHERE id=? AND session_id=?", (ref, sid)) else {}
         cid = body.get("check_id")
+        st = {}
         if kind == "answer" and isinstance(cid, int) and db.row(con, "SELECT id FROM checkq WHERE id=? AND session_id=?", (cid, sid)):
-            extra["stage_ms"] = db.jdump({"check_id": cid})
+            st["check_id"] = cid
+        if body.get("ground") is True and via == "click":
+            st["ground"] = True   # A10: 答えの文を選んで「実際には何のこと？」を押した（結ばれずに残った比喩の物差し）
+        if st:
+            extra["stage_ms"] = db.jdump(st)
         tid = new_turn(con, sid, via, final_text=text[:2000], title=(body.get("title") or text)[:16], **extra)
     events.publish({"t": "turn", "turn_id": tid, "session_id": sid, "status": "recorded", "new": True})
     pipeline.spawn(pipeline.run_text(tid, kind))

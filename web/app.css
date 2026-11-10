@@ -54,6 +54,8 @@
 }
 
 * { box-sizing: border-box; }
+/* hidden の付いた要素は、id で display を決めていても出さない（#retcheck・#resume が空の帯として残っていた・作業B） */
+[hidden] { display: none !important; }
 html, body { margin: 0; height: 100%; }
 body { background: var(--bg); color: var(--ink); font: 15px/1.75 var(--font-body); -webkit-font-smoothing: antialiased; overflow: hidden; }
 button { font: inherit; color: inherit; cursor: pointer; }
@@ -174,7 +176,7 @@ q.qv.ok::after { content: "棚"; font: 600 9.5px var(--font-body); color: var(--
 .edge.r-shaky { stroke: var(--warn-ink); }
 .e-label rect { fill: var(--bg); stroke: var(--line); }
 .e-label text { font-size: 10.5px; fill: var(--ink-2); }
-.node { cursor: pointer; }
+.cmap-svg .node { cursor: pointer; }   /* mermaid の箱も class="node" なので、位置の図の札に限る */
 .node .n-box { fill: var(--bg); stroke: var(--edge); stroke-width: 1.2; transition: transform var(--dur) var(--ease); }
 .node .n-text { fill: var(--ink); font-weight: 500; }
 .node:hover .n-box, .node:focus-visible .n-box { stroke: var(--link); stroke-width: 2; }
@@ -212,6 +214,10 @@ q.qv.ok::after { content: "棚"; font: 600 9.5px var(--font-body); color: var(--
 .tree-n.d1 { font-weight: 600; }
 .tree-n small { color: var(--ink-2); font-size: 11.5px; }
 
+/* 関係の図（mermaid）: 色・線・字はアプリの変数から（app.js の merTheme）。高さに上限を付け、はみ出す分は枠の中で送る */
+.v-mermaid .mer-wrap { max-height: 480px; overflow: auto; text-align: center; }
+.v-mermaid .mer-wrap svg { max-width: 100%; height: auto; }
+.v-mermaid .node rect { rx: 8px; ry: 8px; stroke-width: 1.3px !important; }   /* mermaid の #id つきの線の太さより先に効かせる */
 .mer { margin: 6px 0 18px; padding: 12px; border: 1px solid var(--line); border-radius: var(--r-lg); background: var(--bg); overflow-x: auto; text-align: center; }
 .mer svg { max-width: 100%; height: auto; }
 .mermaid-src { text-align: left; font: 12px/1.5 var(--font-num); color: var(--ink-2); margin: 0; white-space: pre-wrap; }
@@ -363,9 +369,10 @@ q.qv.ok::after { content: "棚"; font: 600 9.5px var(--font-body); color: var(--
 
 /* 流れ（矢印は進む順にだけ使う） */
 .v-flow .v-body { container-type: inline-size; }
-.fl { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 10px 28px; }
+/* 矢印は次の段の手前に付ける（作業B）。折り返した行は、行の頭の矢印で前の行から続くことを示し、行の終わりに行き先の無い矢印を残さない */
+.fl { list-style: none; margin: 0; padding: 0 0 0 26px; display: flex; flex-wrap: wrap; gap: 10px 28px; }
 .fl-step { position: relative; display: grid; grid-template-columns: auto 1fr; gap: 0 8px; align-items: baseline; min-width: 0; max-width: 15em; padding: 8px 12px; border: 1.3px solid var(--edge); border-radius: 9px; background: var(--bg); }
-.fl-step:not(:last-child)::after { content: "→"; position: absolute; right: -21px; top: 50%; transform: translateY(-50%); color: var(--edge); font-size: 15px; }
+.fl-step:not(:first-child)::before { content: "→"; position: absolute; left: -21px; top: 50%; transform: translateY(-50%); color: var(--edge); font-size: 15px; }
 .fl-step b { font-weight: 600; font-size: 14px; }
 .fl-step small, .fl-step .v-unsure { grid-column: 2; font-size: 12px; color: var(--ink-2); }
 .fl-n { font: 600 12px var(--font-num); color: var(--ink-2); }
@@ -430,9 +437,9 @@ q.qv.ok::after { content: "棚"; font: 600 9.5px var(--font-body); color: var(--
 .view .tree { border: 0; padding: 0; margin: 0; background: none; }
 
 @container (max-width: 520px) {
-  .fl { flex-direction: column; gap: 18px; }
+  .fl { flex-direction: column; gap: 18px; padding-left: 0; }
   .fl-step { max-width: none; }
-  .fl-step:not(:last-child)::after { content: "↓"; right: auto; left: 18px; top: auto; bottom: -19px; transform: none; }
+  .fl-step:not(:first-child)::before { content: "↓"; left: 18px; top: -19px; transform: none; }
 }
 .pair .tl-svg, .pair .ov-svg { min-width: 0; }
 
@@ -486,3 +493,118 @@ table.keys kbd { margin-left: 0; font-size: 12px; }
 .changed { margin-left: 8px; }
 .key-row { display: flex; gap: 6px; flex-wrap: wrap; }
 .key-row input { flex: 1 1 14em; min-width: 0; font: inherit; font-size: 13px; color: var(--ink); background: var(--bg); border: 1px solid var(--line); border-radius: var(--r-sm); padding: 5px 8px; }
+
+/* ── 実物に結ぶ（v0.4 作業A）: たとえの対の番号と色・本文の同じ語・図と本文の結び・実例・聞き直しの札 ──
+   対の色は5つまで。明るい面は濃く、暗い面は明るくして、番号の札（色の地に背景色の字）が両方で読める濃さにする。
+   色だけに頼らず番号も付ける。たとえの側の語は琥珀の破線、実際の名前は対の色の実線 */
+:root {
+  --amber: var(--warn-ink);
+  --pair-1: oklch(0.50 0.150 258);
+  --pair-2: oklch(0.50 0.130 155);
+  --pair-3: oklch(0.50 0.170 320);
+  --pair-4: oklch(0.52 0.170 25);
+  --pair-5: oklch(0.50 0.100 200);
+  --dur-hl: .18s;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --pair-1: oklch(0.76 0.120 258);
+    --pair-2: oklch(0.78 0.120 155);
+    --pair-3: oklch(0.76 0.140 320);
+    --pair-4: oklch(0.76 0.130 25);
+    --pair-5: oklch(0.78 0.100 200);
+  }
+}
+.v-tag { font-size: 11.5px; padding: 1px 8px; border-radius: var(--r-pill); font-weight: 600; }
+.v-tag.t-user { background: var(--accent-soft); color: var(--ready); }
+.v-tag.t-unchecked { background: var(--warn-soft); color: var(--warn-ink); }
+.an-rel { margin: 0 0 8px; font-size: 13.5px; color: var(--ink); }
+.an3 { width: 100%; border-collapse: collapse; font-size: 13.5px; line-height: 1.55; }
+.an3 th { font-size: 11.5px; font-weight: 600; color: var(--ink-2); background: transparent; padding: 2px 10px 6px; border-bottom: 1px solid var(--line); vertical-align: bottom; }
+.an3 th small { display: block; font-size: 12.5px; font-weight: 600; color: var(--ink); }
+.an3 td { padding: 7px 10px; border-bottom: 1px solid var(--line); vertical-align: middle; transition: background-color var(--dur-hl) var(--ease); }
+.an3 td:first-child { white-space: normal; font-weight: 400; border-left: 3px solid var(--pc); }
+.an3 tr:last-child td { border-bottom: 0; }
+.an-row { cursor: pointer; }
+.an-row:focus-visible { outline: 2px solid var(--pc); outline-offset: -2px; }
+.an-row.hl td { background: color-mix(in oklch, var(--pc) 16%, transparent); }
+.an-no { display: inline-grid; place-items: center; min-width: 18px; height: 18px; padding: 0 4px; margin-right: 8px; border-radius: var(--r-pill); background: var(--pc); color: var(--bg); font: 650 11px/1 var(--font-num); vertical-align: 1px; }
+.an-sn { border-bottom: 2px dashed var(--amber); }
+.an-tn { font-weight: 600; border-bottom: 2px solid var(--pc); }
+.an-role { color: var(--ink-2); }
+.an-val { display: block; margin-top: 2px; font: 11.5px/1.4 var(--font-num); color: var(--ink-2); }
+.an-sc .an-val { margin-left: 26px; }
+.an-un { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px; margin-top: 10px; font-size: 12.5px; }
+.an-un b { font-size: 12px; color: var(--ink-2); margin-right: 2px; }
+.an-unit { padding: 1px 9px; border: 1px solid var(--line); border-radius: var(--r-pill); background: var(--bg); font-weight: 550; }
+/* 本文の中の対の語（markAnswer が包む） */
+.gx { border-radius: 3px; cursor: pointer; transition: background-color var(--dur-hl) var(--ease), box-shadow var(--dur-hl) var(--ease); }
+.gx-t { border-bottom: 2px solid var(--pc); }
+.gx-s { border-bottom: 2px dashed var(--amber); }
+.term:has(> .gx-t) { border-bottom-color: transparent; }
+.gx-no { position: relative; top: -.55em; margin-left: 2px; padding: 1px 4px; border-radius: var(--r-pill); background: var(--pc); color: var(--bg); font: 650 9.5px/1 var(--font-num); }
+.gx.hl { background: color-mix(in oklch, var(--pc) 22%, transparent); box-shadow: 0 0 0 2px color-mix(in oklch, var(--pc) 22%, transparent); }
+/* 図のラベルと本文の『用語』（B3）。指したときだけ光る */
+[data-link] { transition: background-color var(--dur-hl) var(--ease), box-shadow var(--dur-hl) var(--ease); }
+.term[data-link].hl, :not(text)[data-lab][data-link].hl { background: color-mix(in oklch, var(--ready) 18%, transparent); box-shadow: 0 0 0 2px color-mix(in oklch, var(--ready) 30%, transparent); border-radius: 4px; }
+text[data-link].hl { fill: var(--ready); font-weight: 700; }
+.node[data-link].hl .n-box { stroke: var(--ready); stroke-width: 2.6; }
+/* 流れの実例（B1）: 上に通す実例、各段の下に「例」の札 */
+.fl-case { margin: 0 0 12px; font-size: 13px; display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 8px; }
+.fl-case span { font-size: 11.5px; font-weight: 650; color: var(--ink-2); }
+.fl-step .fl-ex { grid-column: 2; justify-self: start; display: inline-flex; align-items: baseline; gap: 6px; margin-top: 4px; padding: 1px 8px; border-radius: 6px; background: var(--surface-2); font: 11.5px/1.5 var(--font-num); color: var(--ink); overflow-wrap: anywhere; }
+.fl-ex i { font: 600 10.5px var(--font-body); font-style: normal; color: var(--ink-2); }
+/* 図を自分の言葉で言う（B4） */
+.v-say { margin-top: 10px; }
+.chip.say { cursor: pointer; }
+/* 実際には何のこと？（A10）: 選んだ字の近くに出る小さな札 */
+.ground-pop { position: fixed; z-index: 30; padding: 4px 12px; border-radius: var(--r-pill); border: 1px solid var(--edge); background: var(--bg); color: var(--ink); font-size: 12.5px; font-weight: 550; box-shadow: var(--shadow); animation: groundIn var(--dur-hl) var(--ease); }
+.ground-pop[hidden] { display: none; }
+.ground-pop:hover { border-color: var(--link); color: var(--link); }
+@keyframes groundIn { from { opacity: 0; transform: translateY(-3px); } }
+/* しくみの絵（v0.4 作業B の B2）: 部品の箱と番号つきの受け渡しの矢印。横の並びと縦の並びを幅で切り替える */
+.v-parts .v-body { container-type: inline-size; }
+.pt-wrap { overflow-x: auto; }
+.pt-svg { display: block; max-width: 100%; height: auto; margin: 0 auto 4px; }
+.pt-v, .pt-tall .pt-h { display: none; }
+.pt-tall .pt-v { display: block; }
+@container (max-width: 520px) { .pt-h { display: none; } .pt-v { display: block; } }
+.pt-box rect { fill: var(--bg); stroke: var(--edge); stroke-width: 1.3; transition: stroke var(--dur-hl) var(--ease), fill var(--dur-hl) var(--ease); }
+.pt-box.pt-par rect { fill: color-mix(in oklch, var(--surface-2) 70%, transparent); stroke: var(--edge); stroke-dasharray: 5 3; }
+.pt-lab { font-size: 13px; font-weight: 600; fill: var(--ink); }
+.pt-par .pt-lab { font-weight: 650; }
+.pt-note { font-size: 11px; fill: var(--ink-2); }
+.pt-line { fill: none; stroke: var(--edge); stroke-width: 1.4; stroke-linejoin: round; transition: stroke var(--dur-hl) var(--ease), stroke-width var(--dur-hl) var(--ease); }
+.pt-hit { fill: none; stroke: transparent; stroke-width: 12; }
+.pt-arr { fill: var(--edge); transition: fill var(--dur-hl) var(--ease); }
+.pt-link { cursor: pointer; }
+.pt-link:focus { outline: none; }
+.pt-link circle { fill: var(--bg); stroke: var(--edge); stroke-width: 1.2; transition: fill var(--dur-hl) var(--ease), stroke var(--dur-hl) var(--ease); }
+.pt-n { font: 650 11px var(--font-num); fill: var(--ink); }
+.pt-link.hl .pt-line, .pt-link:focus-visible .pt-line { stroke: var(--ready); stroke-width: 2.4; }
+.pt-link.hl .pt-arr { fill: var(--ready); }
+.pt-link.hl circle, .pt-link:focus-visible circle { fill: var(--ready); stroke: var(--ready); }
+.pt-link.hl .pt-n, .pt-link:focus-visible .pt-n { fill: var(--bg); }
+.pt-box.hl rect, .pt-box[data-link].hl rect { stroke: var(--ready); stroke-width: 2.4; }
+.pt-box[data-link].hl .pt-lab { fill: var(--ready); }
+.pt-list { list-style: none; margin: 8px 0 0; padding: 0; display: grid; gap: 2px; font-size: 13px; }
+.pt-row { display: grid; grid-template-columns: auto minmax(0, max-content) minmax(0, 1fr); align-items: baseline; gap: 2px 10px; padding: 4px 8px; border-radius: var(--r-sm); cursor: pointer; transition: background-color var(--dur-hl) var(--ease); }
+.pt-row:focus-visible { outline: 2px solid var(--ready); outline-offset: -2px; }
+.pt-row.hl { background: color-mix(in oklch, var(--ready) 14%, transparent); }
+.pt-no { display: inline-grid; place-items: center; min-width: 18px; height: 18px; padding: 0 4px; border-radius: var(--r-pill); border: 1.2px solid var(--edge); font: 650 11px/1 var(--font-num); color: var(--ink); align-self: center; }
+.pt-row.hl .pt-no { background: var(--ready); border-color: var(--ready); color: var(--bg); }
+.pt-ft { font-weight: 600; color: var(--ink); white-space: nowrap; }
+.pt-ft i { font-style: normal; color: var(--ink-2); margin: 0 6px; }
+.pt-what { color: var(--ink); min-width: 0; }
+.pt-row .fl-ex { grid-column: 3; justify-self: start; display: inline-flex; align-items: baseline; gap: 6px; padding: 1px 8px; border-radius: 6px; background: var(--surface-2); font: 11.5px/1.5 var(--font-num); color: var(--ink); overflow-wrap: anywhere; }
+@container (max-width: 520px) { .pt-row { grid-template-columns: auto minmax(0, 1fr); } .pt-what, .pt-row .fl-ex { grid-column: 2; } .pt-ft { white-space: normal; } }
+/* ヒントつきの確かめ（v0.4 作業B の C1・C2）: 帯の中に1段ずつ。読んでから言えるまでの間は事実だけ */
+.rc-hints { list-style: none; margin: 2px 0 0; padding: 0; display: grid; gap: 4px; }
+.rc-hints li { margin: 0; padding: 6px 12px; border-left: 3px solid var(--warn-ink); background: var(--warn-soft); border-radius: 0 var(--r-sm) var(--r-sm) 0; font-size: 14px; line-height: 1.6; }
+.rc-hints li span { display: inline-block; margin-right: 10px; font-size: 11.5px; font-weight: 650; color: var(--warn-ink); }
+.rc-new { animation: rcIn var(--dur-hl) var(--ease); }
+@keyframes rcIn { from { opacity: 0; transform: translateY(-2px); } }
+.gr-recall { flex-basis: 100%; font-size: 12.5px; color: var(--ok-ink); }
+/* 答えが開くとき（予想の帯・確かめのあと）だけ、短く現れる（作業B・動きを減らす設定では上の決まりで無し） */
+.answer.ans-open { animation: ansIn .18s var(--ease); }
+@keyframes ansIn { from { opacity: 0; transform: translateY(4px); } }
