@@ -747,11 +747,14 @@
 
   // ── 図を自分の言葉で言う（v0.4 の B4）: 言い直し（confirm）として話し始める。録音できない所では文字の欄へ ──
   const canRecord = () => !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia) && typeof MediaRecorder !== "undefined";
-  const TYPED_HINT = "打って送る（Enter）";
+  // 文字の欄は Enter で改行、⌘Enter（Mac）・Ctrl+Enter（ほか）で送る（2026-11-10 本人「Enter でなく cmd+Enter で送る」。
+  // 日本語入力の確定の Enter で送ってしまうのを避ける）
+  const SEND_SHOW = IS_MAC ? "⌘Enter" : "Ctrl+Enter";
+  const TYPED_HINT = `打って送る（${SEND_SHOW}・Enter は改行）`;
   function typeFor(kind) {
     S.typedKind = kind;
     const ta = $("#typed");
-    ta.placeholder = kind === "confirm" ? "この図を自分の言葉で（Enter で送る）" : TYPED_HINT;
+    ta.placeholder = kind === "confirm" ? `この図を自分の言葉で（${SEND_SHOW} で送る）` : TYPED_HINT;
     if (kind) ta.focus();
   }
   function sayInOwnWords() {
@@ -1266,16 +1269,27 @@
     if (n && n.dataset.label) sendText(`${n.dataset.label}を説明して`, "question", "click");
   });
 
+  // 文字の欄の高さを中身に合わせる（Enter で改行できるので、6行ぶんまで伸ばし、それより長いと欄の中で上下に送る）
+  function fitTyped() {
+    const ta = $("#typed");
+    ta.style.height = "auto";
+    ta.style.height = Math.min(ta.scrollHeight + 2, 168) + "px";
+  }
+  $("#typed").addEventListener("input", fitTyped);
+  $("#typed").placeholder = TYPED_HINT;
+
   $("#typed").addEventListener("keydown", (e) => {
-    if (e.key === "Enter" && !e.shiftKey && !e.isComposing) {
-      e.preventDefault();
-      const v = e.target.value;
-      e.target.value = "";
-      sendText(v, S.typedKind || (S.rec.kind === "answer" ? "answer" : "question"));
-      S.rec.kind = null;
-      typeFor(null);
-      paintTalk();
-    }
+    if (e.key !== "Enter" || e.isComposing || e.keyCode === 229) return;   // 日本語入力の確定の Enter は送らない
+    if (!(e.metaKey || e.ctrlKey)) return;   // Enter だけ・Shift+Enter は改行（textarea の既定のまま）
+    e.preventDefault();
+    const v = e.target.value;
+    if (!v.trim()) return;
+    e.target.value = "";
+    fitTyped();
+    sendText(v, S.typedKind || (S.rec.kind === "answer" ? "answer" : "question"));
+    S.rec.kind = null;
+    typeFor(null);
+    paintTalk();
   });
 
   $("#title").addEventListener("change", async (e) => {

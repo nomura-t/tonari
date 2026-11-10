@@ -251,7 +251,7 @@ q.qv.ok::after { content: "棚"; font: 600 9.5px var(--font-body); color: var(--
 .ans-err p { margin: 0 0 6px; }
 
 /* 話す */
-#composer { display: grid; grid-template-columns: auto auto 1fr auto; align-items: center; gap: 12px; padding: 12px 22px 16px; border-top: 1px solid var(--line); background: var(--bg); }
+#composer { display: grid; grid-template-columns: auto auto 1fr auto; align-items: end; gap: 12px; padding: 12px 22px 16px; border-top: 1px solid var(--line); background: var(--bg); }
 #talk { display: inline-flex; align-items: center; gap: 9px; padding: 11px 18px 11px 15px; border-radius: var(--r-pill); border: 1px solid var(--accent); background: var(--accent); color: var(--accent-ink); font-weight: 650; font-size: 15px; min-width: 132px; transition: background var(--dur) var(--ease), transform .08s; }
 #talk:active { transform: scale(.98); }
 #talk kbd { background: transparent; color: inherit; border-color: color-mix(in oklch, var(--accent-ink) 35%, transparent); }
