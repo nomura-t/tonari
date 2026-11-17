@@ -62,6 +62,12 @@ TUTOR_IDLE_SEC = int(os.environ.get("TONARI_TUTOR_IDLE_SEC", "1800"))    # こ�
 # 整形役（文字起こしの直し）。1回ごとに温めた予備を使い捨てる（話題をまたいで文脈を持ち越さない）。
 FIXER_MODEL = os.environ.get("TONARI_FIXER_MODEL", "sonnet")
 FIXER_EFFORT = os.environ.get("TONARI_FIXER_EFFORT", "low") or None
+# 記録役（v0.5）。答えが届いたあとに、記録用の地図と確かめの問いを作る（server/recorder.py）。off で作らない
+RECORDER_MODEL = os.environ.get("TONARI_RECORDER_MODEL", "sonnet")
+RECORDER_EFFORT = os.environ.get("TONARI_RECORDER_EFFORT", "low") or None
+RECORDER = os.environ.get("TONARI_RECORDER", "on")
+# 調べ役（v0.5）。Web を検索してページにまとめる（server/research.py）。空なら、その話題の先生役と同じモデル
+RESEARCH_MODEL = os.environ.get("TONARI_RESEARCH_MODEL", "") or None
 
 # Apple の聞き取り（Mac だけ。stt/build.sh で作る）。無い PC では端末内の Haas か Scribe だけで文字にする
 STT_BIN = Path(os.environ.get("TONARI_STT_BIN") or APP_DIR / "stt" / "bin" / "stt-helper")

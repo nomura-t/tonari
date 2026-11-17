@@ -150,6 +150,8 @@ MIGRATIONS = [
     # --system-prompt-file を渡し直しても変わらない（2026-11-10・claude 2.1.322 で確かめた）。印が今の指示と違えば
     # --resume せずに新しい会話を始め、これまでの往復の要約を添える（DESIGN 15.11）
     ("session", "prompt_sig", "ALTER TABLE session ADD COLUMN prompt_sig TEXT"),
+    # v0.5: 関係のつなぐ言葉（「中心は 相手 ＋ つなぐ言葉」で文になる。位置の図の線に出す）
+    ("relation", "phrase", "ALTER TABLE relation ADD COLUMN phrase TEXT"),
 ]
 
 

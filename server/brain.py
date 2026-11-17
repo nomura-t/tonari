@@ -185,10 +185,14 @@ TUTORS = TutorPool()
 class Spare:
     """整形役の予備。起動して待たせておき、1回だけ問いを流して閉じる。"""
 
-    def __init__(self, system_prompt: str, model: str, effort: str | None):
+    def __init__(self, system_prompt: str, model: str, effort: str | None, tools: str = "", allowed: str | None = None,
+                 restricted: bool = False, cwd: Path | None = None):
         self.system_prompt = system_prompt
         self.model = model
         self.effort = effort
+        # 道具は既定で無し。調べ役（v0.5）だけ WebSearch・WebFetch を持つ（ファイルを読む道具は渡さない）。
+        # -p では道具を --tools で渡しただけでは許可待ちで断られるので、同じ名前を --allowedTools にも渡す
+        self.tools, self.allowed, self.restricted, self.cwd = tools, allowed, restricted, cwd
         self.proc: asyncio.subprocess.Process | None = None
         self.started = time.time()
         self.prompt_file = config.WORK_DIR / f"fixer-{os.getpid()}-{time.time_ns()}.txt"
@@ -196,15 +200,19 @@ class Spare:
     async def start(self) -> None:
         config.ensure_dirs()
         self.prompt_file.write_text(self.system_prompt, encoding="utf-8")
-        args = [claude_bin(), "-p", "--safe-mode", "--tools", "", "--no-session-persistence",
+        args = [claude_bin(), "-p", "--safe-mode", "--tools", self.tools, "--no-session-persistence",
                 "--model", self.model,
                 "--input-format", "stream-json", "--output-format", "stream-json", "--verbose",
                 "--system-prompt-file", str(self.prompt_file)]
+        if self.restricted:
+            args.insert(3, "--restricted")
+        if self.allowed:
+            args += ["--allowedTools", self.allowed]
         if self.effort:
             args += ["--effort", self.effort]
         self.proc = await asyncio.create_subprocess_exec(
             *args, stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE, cwd=str(config.WORK_DIR), env=child_env(),
+            stderr=asyncio.subprocess.PIPE, cwd=str(self.cwd or config.WORK_DIR), env=child_env(),
             limit=16 * 1024 * 1024)
         self.started = time.time()
 
@@ -212,7 +220,8 @@ class Spare:
     def alive(self) -> bool:
         return self.proc is not None and self.proc.returncode is None
 
-    async def ask(self, content: str, timeout: float = 60) -> str:
+    async def ask(self, content: str, timeout: float = 60, on_tool=None) -> str:
+        """on_tool は、道具を使うたびに (名前, 入力) で呼ばれる（調べ役の進みを画面に出す）。"""
         assert self.proc and self.proc.stdin and self.proc.stdout
         msg = {"type": "user", "message": {"role": "user", "content": content}}
         self.proc.stdin.write((json.dumps(msg, ensure_ascii=False) + "\n").encode("utf-8"))
@@ -227,6 +236,10 @@ class Spare:
                     ev = json.loads(line)
                 except ValueError:
                     continue
+                if on_tool and ev.get("type") == "assistant":
+                    for block in ev.get("message", {}).get("content", []):
+                        if block.get("type") == "tool_use":
+                            on_tool(block.get("name", ""), block.get("input") or {})
                 if ev.get("type") == "result":
                     if ev.get("is_error"):
                         raise BrainError("整形役がエラーを返しました: " + str(ev.get("result"))[:300])

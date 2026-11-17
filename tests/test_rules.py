@@ -4,6 +4,7 @@ import tempfile
 from pathlib import Path
 
 os.environ.setdefault("TONARI_DATA_DIR", tempfile.mkdtemp(prefix="tonari-test-"))
+os.environ.setdefault("TONARI_RECORDER", "off")   # 検査では記録役（本物の claude）を立てない
 
 from server import app as appmod, corpus, db, fixer, tutor  # noqa: E402
 
@@ -239,9 +240,11 @@ def test_predict_is_attached_to_the_answer_and_hidden():
         assert db.row(con, "SELECT kind FROM log WHERE kind='predict' AND target=30")
 
 
-def test_answers_without_predict_band_count_as_revealed():
-    # 確かめへの答え（kind=answer）のあとの答えは予想の帯を出さないので、届いた時点で開いたとみなす。
-    # そうしないと、その答えに付いた確かめの問いが戻ったときに出ない
+def test_answers_are_marked_open_when_the_screen_shows_them_not_on_arrival(monkeypatch):
+    # v0.6: 開いた時刻は、どの種類の答えにも、届いた時点では付けない。画面が答えを出したときに付ける。
+    # v0.5 までは、確かめへの答え（kind=answer）などに届いた時点で付けていたが、本人が別の話題にいるあいだに届くと、
+    # 読んでいない答えの確かめが出ていた
+    from fastapi.testclient import TestClient
     from server import pipeline
     import json as _j
     db.init()
@@ -252,13 +255,22 @@ def test_answers_without_predict_band_count_as_revealed():
     md = 'まだです。\n```tonari-check\n[{"q": "もし順番が逆なら？", "a": "後ろの段が前の結果を使えず止まる", "type": "もしも"}]\n```'
     pipeline.finish(40, 4, md, "答え", {}, "answer")
     pipeline.finish(41, 4, md.replace("まだです", "説明"), "問い", {}, "question")
-    with db.tx() as con:
+
+    def state():
+        with db.tx() as con:
+            checks = db.rows(con, "SELECT * FROM checkq WHERE session_id=4 ORDER BY id")
+            rows = db.rows(con, "SELECT id, stage_ms FROM turn WHERE session_id=4")
+        return [{"id": r["id"], "revealed_at": _j.loads(r["stage_ms"]).get("revealed_at")} for r in rows], checks
+
+    turns, checks = state()
+    assert all(t["revealed_at"] is None for t in turns)              # 届いただけでは、どちらも開いた扱いにしない
+    assert appmod.return_check(turns, checks) is None                 # 読んでいない答えの確かめは出ない
+    c = TestClient(appmod.app, base_url=f"http://127.0.0.1:{appmod.config.PORT}")
+    assert c.post("/api/sessions/4/reveal", headers={"X-Tonari": "1"}, json={"turn_ids": [40]}).json()["revealed"] == [40]
+    with db.tx() as con:   # 画面が出してから時間がたった
         st40 = _j.loads(db.row(con, "SELECT stage_ms FROM turn WHERE id=40")["stage_ms"])
-        st41 = _j.loads(db.row(con, "SELECT stage_ms FROM turn WHERE id=41")["stage_ms"])
-        assert st40["revealed_at"] > 0 and "revealed_at" not in st41   # 問いへの答えは予想の帯を通ってから開く
         con.execute("UPDATE turn SET stage_ms=? WHERE id=40", (_j.dumps({**st40, "revealed_at": db.now() - 600}),))
-        checks = db.rows(con, "SELECT * FROM checkq WHERE session_id=4 ORDER BY id")
-        turns = [{"id": r["id"], "revealed_at": _j.loads(r["stage_ms"]).get("revealed_at")} for r in db.rows(con, "SELECT id, stage_ms FROM turn WHERE session_id=4")]
+    turns, checks = state()
     assert appmod.return_check(turns, checks)["turn_id"] == 40
 
 
@@ -342,6 +354,12 @@ def test_key_prefs_are_whitelisted_and_conflicts_refused():
     sid = c.post("/api/sessions", headers=h, json={}).json()["id"]
     with db.tx() as con:
         assert db.row(con, "SELECT model FROM session WHERE id=?", (sid,))["model"] == "sonnet"
+    c.post("/api/prefs", headers=h, json={"tutor_model": "fable"})
+    sid = c.post("/api/sessions", headers=h, json={}).json()["id"]
+    with db.tx() as con:
+        assert db.row(con, "SELECT model FROM session WHERE id=?", (sid,))["model"] == "fable"
+    c.post("/api/prefs", headers=h, json={"tutor_model": "gpt"})   # 一覧に無い名前は受けない
+    assert db.get_pref("tutor_model", "") == "fable"
     c.post("/api/prefs", headers=h, json={"tutor_model": ""})
     assert appmod.key_prefs() == {}
 
@@ -640,10 +658,10 @@ def test_usage_stats_counts_numbers_only_and_opens_read_only(tmp_path):
     con.execute("CREATE TABLE turn (id INTEGER PRIMARY KEY, session_id INTEGER, seq INTEGER, via TEXT, status TEXT, stage_ms TEXT, created_at REAL)")
     con.execute("CREATE TABLE checkq (id INTEGER PRIMARY KEY, status TEXT, hints TEXT, hints_used INTEGER)")
     day = 86400
-    rows = [(1, 1, 1, "voice", "done", {"shapes": [{"type": "flow"}, {"type": "analogy"}]}, 0),
+    rows = [(1, 1, 1, "voice", "done", {"shapes": [{"type": "flow"}, {"type": "analogy"}], "offer": "predict", "predict": "たぶん", "predict_via": "text", "revealed_at": 5}, 0),
             (2, 1, 2, "click", "done", {"ground": True}, 10),
             (3, 1, 3, "voice", "superseded", {}, 20),                       # 予想の往復は数えない
-            (4, 2, 1, "text", "done", {"shapes": [{"type": "parts"}]}, 2 * day),
+            (4, 2, 1, "text", "done", {"shapes": [{"type": "parts"}], "offer": "predict", "kind": "answer", "check_id": 1}, 2 * day),
             (5, 2, 2, "click", "error", {"ground": True}, 2 * day + 5)]
     for r in rows:
         con.execute("INSERT INTO turn VALUES(?,?,?,?,?,?,?)", (*r[:5], _j.dumps(r[5]), r[6] + 1_700_000_000))
@@ -665,9 +683,12 @@ def test_usage_stats_counts_numbers_only_and_opens_read_only(tmp_path):
     assert (s["checks"], s["checks_answered"], s["checks_skipped"], s["checks_open"], s["answer_rate"]) == (4, 2, 1, 1, 0.5)
     assert (s["hints_used_total"], s["checks_with_hints"]) == (3, 2)
     assert (s["ground_clicks"], s["ground_after_analogy"], s["turns_with_analogy"], s["turns_with_parts"]) == (2, 1, 1, 1)
+    # v0.6 の数: 誘った往復・予想した往復（声・文字）・届いたのに開いていない答え・確かめへの答えの往復
+    assert (s["predict_offered"], s["predict_after_offer"], s["predicted"], s["predicted_by_via"]) == (2, 1, 1, {"voice": 0, "text": 1})
+    assert (s["unopened_answers"], s["check_answer_turns"], s["topics"], s["topics_archived"]) == (2, {"voice": 0, "text": 1}, 2, 0)
     out = subprocess.run([sys.executable, "tests/usage_stats.py", "--db", str(p)], capture_output=True, text=True,
                          cwd=Path(__file__).parent.parent).stdout
-    assert "答えた率: 50%" in out and "使った日数: 2" in out
+    assert "答えた率: 50%" in out and "使った日数: 2" in out and "待つあいだに予想を誘った往復: 2" in out
 
 
 def test_event_streams_end_on_close_and_do_not_reopen():

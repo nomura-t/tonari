@@ -16,7 +16,13 @@
       <span class="brand-t">となり<small>声で回す学び</small></span>
     </header>
     <button id="newSession" class="new">＋ 新しい話題<kbd data-key="new">⌘N</kbd></button>
-    <nav id="sessions"></nav>
+    <div id="railScroll">
+      <nav id="sessions"></nav>
+      <details id="archived" hidden>
+        <summary>片づけた話題<span id="archCount"></span></summary>
+        <div id="archList"></div>
+      </details>
+    </div>
     <footer class="rail-foot">
       <p id="setupWarn" class="setup-warn" hidden></p>
       <p id="scribeInfo" class="tiny"></p>
@@ -28,16 +34,17 @@
   <main id="main" hidden>
     <header id="topbar">
       <input id="title" aria-label="話題の名前" spellcheck="false">
-      <div id="detail" class="seg" role="group" aria-label="答えの詳しさ" title="答えの詳しさ（自動は、確かめの問いに答えられた概念ほど短くします）">
+      <div id="detail" class="seg" role="group" aria-label="答えの詳しさ" title="答えの詳しさ（自動は、ふつうは短く答え、詳しくと頼まれたら長くします）">
         <button data-detail="auto">自動</button><button data-detail="short">短く</button><button data-detail="long">詳しく</button>
       </div>
       <span id="modelChip" class="chip mono" title="先生役のモデル"></span>
       <button id="archive" class="ghost small" title="この話題を片づける（記録は残ります）">片づける</button>
     </header>
     <div id="resume" hidden></div>
-    <div id="retcheck" hidden></div>
     <section id="thread" aria-live="polite"></section>
-    <footer id="composer">
+    <footer id="foot">
+    <div id="strip" class="strip" hidden></div>
+    <div id="composer">
       <button id="talk" data-phase="idle" aria-label="話す・送る（Space）">
         <span class="talk-dot" aria-hidden="true"></span><span id="talkLabel">話す</span><kbd data-key="talk">Space</kbd>
       </button>
@@ -48,6 +55,7 @@
       </div>
       <textarea id="typed" rows="1" placeholder="打って送る（⌘Enter・Enter は改行）"></textarea>
       <button id="nextBtn" class="next" title="答えの届いた話題へ">次の話題へ<span id="nextCount"></span><kbd data-key="next">⌘]</kbd></button>
+    </div>
     </footer>
   </main>
 
@@ -56,6 +64,7 @@
       <button class="tab on" data-tab="ego" role="tab">位置</button>
       <button class="tab" data-tab="list" role="tab">この話題</button>
       <button class="tab" data-tab="all" role="tab">全部</button>
+      <button class="tab-x" id="openAtlas" title="話題と言葉の全体を、1枚の地図で見渡す">全体の地図<kbd data-key="atlas"></kbd></button>
     </div>
     <div id="sidePane"></div>
   </aside>
@@ -106,19 +115,63 @@
   <section class="set-sec">
     <h3>先生役</h3>
     <label class="pref"><span>モデル（新しい話題から使います。いまある話題は今のまま）</span>
-      <select id="tutorModel" aria-label="先生役のモデル"><option value="">既定</option><option value="opus">opus</option><option value="sonnet">sonnet（opus が使えないプランのとき）</option></select>
+      <select id="tutorModel" aria-label="先生役のモデル"><option value="">既定</option><option value="fable">fable</option><option value="opus">opus</option><option value="sonnet">sonnet（opus が使えないプランのとき）</option></select>
     </label>
   </section>
   <section class="set-sec">
     <h3>読み方</h3>
     <label class="pref chk"><input type="checkbox" id="autoNext"><span>送ったら答えの届いた話題へ移る</span></label>
-    <label class="pref chk"><input type="checkbox" id="predictPref"><span>答えを読む前に予想を一言話す</span></label>
+    <label class="pref"><span>答えを読む前の予想</span>
+      <select id="predictPref" aria-label="答えを読む前の予想の出し方">
+        <option value="both">待つあいだに誘い、戻ったときは畳んで誘う</option>
+        <option value="wait">待つあいだに誘うだけ（答えは畳まない）</option>
+        <option value="off">出さない</option>
+      </select>
+    </label>
+    <label class="pref"><span>答えの字の大きさ</span>
+      <select id="textSize" aria-label="答えの字の大きさ">
+        <option value="s">小さめ</option>
+        <option value="m">ふつう</option>
+        <option value="l">大きめ</option>
+      </select>
+    </label>
+    <label class="pref chk"><input type="checkbox" id="chimePref"><span>ほかの話題に答えが届いたら音で知らせる</span></label>
+    <label class="pref chk"><input type="checkbox" id="autoLookup"><span>手元の資料に無く、確かでないことは、聞かずに Web で調べる（問いの文が検索に送られます）</span></label>
   </section>
+</dialog>
+<dialog id="pageView" aria-labelledby="pageTitle">
+  <header class="set-head"><h2 id="pageTitle">Web で調べたページ</h2><button class="ghost small" id="closePage">閉じる</button></header>
+  <div id="pageBody"></div>
+</dialog>
+<dialog id="atlas" aria-labelledby="atTitle">
+  <header class="at-bar">
+    <h2 id="atTitle">全体の地図</h2>
+    <label class="at-find"><input id="atFind" type="search" placeholder="言葉か話題を探す" aria-label="地図の中の言葉か話題を探す" autocomplete="off" spellcheck="false"><span id="atFindN" class="tiny"></span></label>
+    <span id="atMsg" class="tiny" role="status"></span>
+    <button id="atNews" class="primary small" hidden></button>
+    <div class="at-zoom" role="group" aria-label="地図の大きさ">
+      <button id="atHere" class="ghost small" title="いま開いている話題の島へ">いまの話題</button>
+      <button id="atFit" class="ghost small" title="全体を窓に収める（0）">全体</button>
+      <button id="atOut" class="ghost small" aria-label="引く" title="引く（-）">−</button>
+      <span id="atZoomNow" class="tiny mono">100%</span>
+      <button id="atIn" class="ghost small" aria-label="寄る" title="寄る（+）">＋</button>
+    </div>
+    <button id="atClose" class="ghost small">閉じる<kbd>Esc</kbd></button>
+  </header>
+  <div class="at-body">
+    <div id="atView" class="at-view">
+      <svg id="atSvg" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="話題と言葉の地図"></svg>
+      <p id="atEmpty" class="at-empty" hidden>まだ地図に置く言葉がありません。答えが届くと、出てきた言葉がここに並びます。</p>
+      <p class="at-hint tiny">つかんで動かす・2本指で送る／つまむか、⌘（Ctrl）を押しながら回すと寄る・引く／言葉か島を押すと、中身が右に出ます</p>
+    </div>
+    <aside id="atSide" class="at-side" aria-label="選んだ物の中身"></aside>
+  </div>
 </dialog>
 <div id="toast" role="status"></div>
 <script src="/web/md.js"></script>
 <script src="/web/map.js"></script>
 <script src="/web/views.js"></script>
+<script src="/web/atlas.js"></script>
 <script src="/web/app.js"></script>
 <script>document.getElementById("emptyStart").addEventListener("click", () => document.getElementById("newSession").click());</script>
 </body>

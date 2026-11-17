@@ -11,15 +11,15 @@ from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
-from . import brain, config, corpus, db, events, fixer, graph, health, judge, pipeline, stt, tutor
+from . import atlas, brain, config, corpus, db, events, fixer, flow, graph, health, judge, pipeline, predfb, readings, recorder, research, stt, tutor
 
 app = FastAPI(title="となり", docs_url=None, redoc_url=None, openapi_url=None)
 WEB_DIR = config.APP_DIR / "web"
 STATE_JA = {"known": "分かる", "shaky": "あやしい", "unknown": "分からない"}
 # 設定の画面で変えられるキーの操作（web/app.js の KEY_ACTIONS と同じ）と、受け付ける形（e.code を + でつないだもの）
-KEY_ACTIONS = ("new", "next", "open", "talk", "reveal", "cancel")
+KEY_ACTIONS = ("new", "next", "open", "talk", "reveal", "atlas", "cancel")
 KEY_RE = re.compile(r"^(?:(?:Ctrl|Alt|Shift|Meta)\+){0,4}[A-Za-z0-9]{1,20}$")
-TUTOR_MODELS = ("", "opus", "sonnet")
+TUTOR_MODELS = ("", "fable", "opus", "sonnet")   # claude の --model に渡す別名（"" は既定に戻す）
 
 
 def key_prefs() -> dict:
@@ -79,6 +79,10 @@ async def shutdown():
     await fixer.POOL.close()
     await judge.POOL.close()
     await judge.PAIR_POOL.close()
+    await recorder.POOL.close()
+    await readings.POOL.close()
+    await predfb.POOL.close()
+    await research.CHECK_POOL.close()
 
 
 @app.post("/api/shutdown")
@@ -119,17 +123,21 @@ def session_rows(con) -> list[dict]:
 async def api_state():
     with db.tx() as con:
         sessions = session_rows(con)
+        archived = flow.archived_rows(con)
         usage = db.row(con, "SELECT COALESCE(SUM(sec),0) AS sec, COUNT(*) AS n FROM stt_usage WHERE engine='scribe' "
                             "AND at > strftime('%s','now','start of month')")
         counts = db.row(con, "SELECT (SELECT COUNT(*) FROM concept) AS concepts, (SELECT COUNT(*) FROM relation) AS relations, "
                              "(SELECT COUNT(*) FROM mastery WHERE state='known') AS known")
     ok, why = await stt.scribe_allowed()
     lok, lwhy = stt.local_allowed()
-    return {"sessions": sessions, "prefs": {"scribe": db.get_pref("scribe", config.SCRIBE_MODE),
+    return {"sessions": sessions, "archived": archived, "prefs": {"scribe": db.get_pref("scribe", config.SCRIBE_MODE),
                                             "auto_next": db.get_pref("auto_next", "1"),
-                                            "predict": db.get_pref("predict", "1"),
+                                            "predict": flow.predict_mode(),   # both / wait / off（v0.6）
+                                            "text_size": flow.text_size(), "chime": db.get_pref("chime", "1"),
+                                            "auto_lookup": db.get_pref("auto_lookup", "0"),
                                             "keys": key_prefs(), "tutor_model": db.get_pref("tutor_model", "")},
             "tutor_default": config.TUTOR_MODEL,
+            "predict_fb": predfb.ENABLED,   # 予想と答えの照らし合わせを返すか（v0.6）
             "scribe": {"active": ok, "why": why, "month_sec": usage["sec"], "month_n": usage["n"]},
             "local": {"active": lok, "why": lwhy, "apple": stt.apple_available()},
             "counts": counts, "model": config.TUTOR_MODEL}
@@ -155,7 +163,8 @@ async def api_patch_session(sid: int, req: Request):
         if "title" in body:
             con.execute("UPDATE session SET title=? WHERE id=?", (str(body["title"])[:24] or "新しい話題", sid))
         if "archived" in body:
-            con.execute("UPDATE session SET archived=? WHERE id=?", (1 if body["archived"] else 0, sid))
+            con.execute("UPDATE session SET archived=?, updated_at=? WHERE id=?", (1 if body["archived"] else 0, db.now(), sid))
+            con.execute("INSERT INTO log(kind, target, at) VALUES(?,?,?)", ("archive" if body["archived"] else "restore", sid, db.now()))
         if body.get("detail") in ("auto", "short", "long"):
             con.execute("UPDATE session SET detail=? WHERE id=?", (body["detail"], sid))
     if body.get("archived"):
@@ -172,7 +181,7 @@ def turn_view(t: dict) -> dict:
     v["edits"] = json.loads(t["edits_json"] or "[]")
     v["unsure"] = json.loads(t["unsure_json"] or "[]")
     st = json.loads(t["stage_ms"] or "{}")
-    v["stage"] = {k: st.get(k) for k in ("stt", "fix", "tutor", "pair_judge", "scribe_mode", "local_mode", "second",
+    v["stage"] = {k: st.get(k) for k in ("stt", "fix", "tutor", "pair_judge", "research", "scribe_mode", "local_mode", "second",
                                          "fix_fallback", "stt_errors", "block_errors", "ground")}
     v["grades"] = st.get("grades") or []
     v["center"] = st.get("center")
@@ -181,7 +190,21 @@ def turn_view(t: dict) -> dict:
     v["revealed_at"] = st.get("revealed_at")
     v["kind"] = st.get("kind")
     v["predict"] = st.get("predict")
+    v["predict_via"] = st.get("predict_via")
+    fb = st.get("predict_fb")            # 予想と答えの照らし合わせ（v0.6・predfb.py）
+    if fb and fb.get("state") == "run" and db.now() - float(fb.get("at") or 0) >= predfb.STALE_SEC:
+        fb = {"state": "fail"}           # 走り始めたまま止まった分（サーバーが途中で止まった）
+    v["predict_fb"] = fb
+    # 照らし合わせを付けられる往復か（予想が短すぎる・答えの本文から核を抜き出せない往復には、入口を出さない）
+    v["predict_fb_can"] = bool(t["status"] == "done" and t["answer_md"] and predfb.eligible(st.get("predict"), tutor.strip_blocks(t["answer_md"])))
+    v["offer"] = st.get("offer")         # 答えを待つあいだに予想を誘う往復（v0.6・flow.predict_offer）
+    v["alt"] = st.get("alt")             # 読みの判定役が見つけた、発言の別の読み（v0.6・readings.py）
     v["check_id"] = st.get("check_id")   # 戻ったときの確かめの問いに答えた往復なら、その問い
+    v["budget"] = st.get("budget")       # この答えの本文の字数の目安と理由（v0.5）
+    v["lookup"] = st.get("lookup")       # 先生役が「Web で調べるとよい」とした問い（v0.5）
+    v["from_turn"] = st.get("from_turn")  # Web で調べた往復の、きっかけになった答え
+    v["page"] = st.get("page")            # Web で調べた往復が作ったページ
+    v["counts"] = st.get("counts")
     if t["answer_md"]:
         b = tutor.turn_blocks(t["answer_md"], st)   # v0.4 より前の答えは前の決まりで・判定役の結果は毎回当てる
         v["answer"] = b["text"]          # 図の置き場所は [[view:N]]
@@ -264,6 +287,13 @@ def return_check(views: list[dict], checks: list[dict]) -> dict | None:
     return None
 
 
+@app.get("/api/checks/due")
+async def api_checks_due(exclude: int | None = None):
+    """ほかの話題（片づけた話題を含む）に、いま出せる確かめの問いがいくつあるか（v0.6。起動したときに1問だけ差し出す）。"""
+    with db.tx() as con:
+        return flow.due_checks(con, config.RETURN_AFTER_SEC, exclude)
+
+
 @app.post("/api/checks/{cid}/hint")
 async def api_hint(cid: int):
     """戻ったときの確かめのヒントを1段だけ足して出し、出した段の数を記録する（C1）。"""
@@ -284,14 +314,87 @@ async def api_hint(cid: int):
 async def api_reveal(tid: int):
     """読む前の予想の帯を閉じて答えを開いた（予想を言った・すぐ読む）。"""
     with db.tx() as con:
-        t = db.row(con, "SELECT session_id, stage_ms FROM turn WHERE id=?", (tid,))
+        t = db.row(con, "SELECT session_id, status, stage_ms FROM turn WHERE id=?", (tid,))
         if not t:
             raise HTTPException(404, "往復がありません")
         st = json.loads(t["stage_ms"] or "{}")
-        st.setdefault("revealed_at", db.now())
-        con.execute("UPDATE turn SET stage_ms=? WHERE id=?", (db.jdump(st), tid))
+        if t["status"] == "done" and "revealed_at" not in st:   # 答えがまだ届いていない往復には付けない
+            st["revealed_at"] = db.now()
+            flow.note_reveal(con, tid, st)   # 誘った往復を予想なしで開いたら、次の1回は誘わない
+            con.execute("UPDATE turn SET stage_ms=? WHERE id=?", (db.jdump(st), tid))
     events.publish({"t": "turn", "turn_id": tid, "session_id": t["session_id"], "status": "done"})
     return {"ok": True}
+
+
+@app.post("/api/sessions/{sid}/reveal")
+async def api_reveal_shown(sid: int, req: Request):
+    """画面が出した答えに、開いた時刻を付ける（v0.6。答えを畳まない出し方では、読める形で画面に出たときが「開いた」）。
+    turn_ids があればその往復だけ、無ければこの話題の届いた答えで、まだ時刻の無いものすべて。"""
+    body = await req.json() if (await req.body()) else {}
+    ids = body.get("turn_ids")
+    note = body.get("note") is not False   # 出し方の設定を変えて開いた扱いにするときは、乗らなかったの印を付けない
+    done = []
+    with db.tx() as con:
+        rows = db.rows(con, "SELECT id, stage_ms FROM turn WHERE session_id=? AND status='done'", (sid,))
+        for r in rows:
+            if isinstance(ids, list) and r["id"] not in ids:
+                continue
+            st = json.loads(r["stage_ms"] or "{}")
+            if "revealed_at" not in st:
+                st["revealed_at"] = db.now()
+                if note:
+                    flow.note_reveal(con, r["id"], st)
+                con.execute("UPDATE turn SET stage_ms=? WHERE id=?", (db.jdump(st), r["id"]))
+                done.append(r["id"])
+    return {"revealed": done}
+
+
+@app.post("/api/sessions/{sid}/predict")
+async def api_predict_text(sid: int, req: Request):
+    """文字で打った予想を、予想した往復に書き添える（v0.6）。先生役には送らない。声の予想は /voice の kind=predict。"""
+    body = await req.json()
+    text = str(body.get("text") or "").strip()
+    tid = body.get("turn_id")
+    if not text:
+        raise HTTPException(400, "文が空です")
+    with db.tx() as con:
+        ok = isinstance(tid, int) and db.row(con, "SELECT id FROM turn WHERE id=? AND session_id=? AND status!='superseded'", (tid, sid))
+    if not ok or not pipeline.save_predict(None, tid, text, "text"):
+        raise HTTPException(404, "往復がありません")
+    return {"ok": True}
+
+
+@app.post("/api/turns/{tid}/predict-fb")
+async def api_predict_fb(tid: int):
+    """予想と答えの照らし合わせを付ける（前の版でした予想に付けるとき・取れなかったあとのやり直し）。"""
+    if not predfb.ENABLED:
+        raise HTTPException(409, "照らし合わせは止めてあります")
+    with db.tx() as con:
+        t = db.row(con, "SELECT status, answer_md, stage_ms FROM turn WHERE id=?", (tid,))
+    st = json.loads((t or {}).get("stage_ms") or "{}")
+    if not t or t["status"] != "done" or not t["answer_md"] or not predfb.eligible(st.get("predict"), tutor.strip_blocks(t["answer_md"])):
+        raise HTTPException(409, "照らし合わせられる予想と答えがありません（予想が短いか、答えの本文がまだありません）")
+    if not pipeline.maybe_predict_fb(tid, force=True):
+        raise HTTPException(409, "いま照らし合わせています")
+    return {"ok": True}
+
+
+@app.post("/api/turns/{tid}/unpredict")
+async def api_unpredict(tid: int, req: Request):
+    """書き添えた予想を外す。resend が真なら、その文を質問として先生役に送る（予想の欄に質問を打ってしまったときの戻し）。"""
+    body = await req.json() if (await req.body()) else {}
+    with db.tx() as con:
+        t = db.row(con, "SELECT session_id FROM turn WHERE id=?", (tid,))
+    text = pipeline.clear_predict(tid) if t else None
+    if text is None:
+        raise HTTPException(404, "予想がありません")
+    if not body.get("resend"):
+        return {"ok": True}
+    with db.tx() as con:
+        nid = new_turn(con, t["session_id"], "text", final_text=text[:2000], title=text[:16])
+    events.publish({"t": "turn", "turn_id": nid, "session_id": t["session_id"], "status": "recorded", "new": True})
+    pipeline.spawn(pipeline.run_text(nid, "question"))
+    return {"ok": True, "turn_id": nid}
 
 
 @app.post("/api/sessions/{sid}/read")
@@ -320,7 +423,10 @@ async def api_voice(sid: int, audio: UploadFile = File(...), kind: str | None = 
     (config.AUDIO_DIR / name).write_bytes(data)
     extra = {}
     with db.tx() as con:
-        if kind == "predict" and ref_turn and db.row(con, "SELECT id FROM turn WHERE id=? AND session_id=?", (ref_turn, sid)):
+        if kind == "predict":
+            if not (ref_turn and db.row(con, "SELECT id FROM turn WHERE id=? AND session_id=?", (ref_turn, sid))):
+                (config.AUDIO_DIR / name).unlink(missing_ok=True)
+                raise HTTPException(400, "予想の相手の往復が、この話題にありません")
             extra["ref_turn"] = ref_turn
         if kind == "answer" and check_id and db.row(con, "SELECT id FROM checkq WHERE id=? AND session_id=?", (check_id, sid)):
             extra["stage_ms"] = db.jdump({"check_id": check_id})
@@ -351,6 +457,10 @@ async def api_text(sid: int, req: Request):
             st["check_id"] = cid
         if body.get("ground") is True and via == "click":
             st["ground"] = True   # A10: 答えの文を選んで「実際には何のこと？」を押した（結ばれずに残った比喩の物差し）
+        if body.get("alt") is True and via == "click":
+            st["alt_pick"] = True   # 「別の読みでしたか」の札を押した（札が使われた数の物差し）
+        if body.get("pfb") is True and via == "click":
+            st["pfb_ask"] = True    # 予想の照らし合わせの下の「聞き返す」を押した（返しが使われた数の物差し）
         if st:
             extra["stage_ms"] = db.jdump(st)
         tid = new_turn(con, sid, via, final_text=text[:2000], title=(body.get("title") or text)[:16], **extra)
@@ -392,6 +502,11 @@ async def api_resend(tid: int, req: Request):
                 con.execute("INSERT INTO log(kind, evidence, turn_id, at) VALUES('mishear',?,?,?)",
                             (f"{heard}→{meant}", tid, db.now()))
         con.execute("UPDATE turn SET status='superseded' WHERE id=?", (tid,))
+        if t["via"] == "research":   # Web で調べる往復の送り直しは、先生役でなく調べ役へ
+            ft = json.loads(t["stage_ms"] or "{}").get("from_turn")
+    if t["via"] == "research":
+        return {"turn_id": pipeline.start_research(t["session_id"], text, ft)}
+    with db.tx() as con:
         nid = new_turn(con, t["session_id"], t["via"], audio=t["audio"], audio_sec=t["audio_sec"],
                        apple_text=t["apple_text"], apple_json=t["apple_json"], scribe_text=t["scribe_text"],
                        haas_text=t["haas_text"], fixed_text=t["fixed_text"], edits_json=t["edits_json"], final_text=text[:2000],
@@ -405,6 +520,48 @@ async def api_resend(tid: int, req: Request):
 @app.get("/api/concepts")
 async def api_concepts(session_id: int | None = None):
     return {"concepts": graph.concepts(session_id)}
+
+
+@app.get("/api/concepts/by-topic")
+async def api_concepts_by_topic():
+    return graph.by_topic()
+
+
+# ── 全体の地図（v0.6・DESIGN 17.12） ──
+ATLAS_ACTS = ("concept", "topic", "ego", "ask", "open_topic", "find")
+
+
+@app.get("/api/atlas")
+async def api_atlas():
+    """話題に出てきた言葉と関係の全部と、その置き場所。読むだけ（記録は変えない）。"""
+    return await asyncio.to_thread(atlas.build)
+
+
+@app.post("/api/atlas/open")
+async def api_atlas_open(req: Request):
+    """地図を開いた。開いた回数を記録に残し、島の置き場所を覚える（次に開いたときに、前からある島を動かさないため）。
+    reset が真なら、覚えている置き場所を使わずに決め直す（本人が「島を並べ直す」を押したとき）。"""
+    body = await req.json() if (await req.body()) else {}
+    data = await asyncio.to_thread(atlas.build, {} if body.get("reset") is True else None)
+    anchors = data["layout"]["anchors"]
+    with db.tx() as con:
+        con.execute("INSERT INTO log(kind, state, at) VALUES('atlas',?,?)", ("relayout" if body.get("reset") is True else "open", db.now()))
+    if anchors and anchors != atlas.stored():
+        db.set_pref(atlas.PREF, db.jdump(anchors))
+    return data
+
+
+@app.post("/api/atlas/act")
+async def api_atlas_act(req: Request):
+    """地図の中でしたこと（言葉を選んだ・話題を開いた・位置の図へ進んだ・説明を頼んだ・探した）を、数として残す。"""
+    body = await req.json()
+    what = str(body.get("what") or "")
+    if what not in ATLAS_ACTS:
+        raise HTTPException(400, "知らない操作です")
+    target = body.get("id") if isinstance(body.get("id"), int) else None
+    with db.tx() as con:
+        con.execute("INSERT INTO log(kind, state, target, at) VALUES('atlas',?,?,?)", (what, target, db.now()))
+    return {"ok": True}
 
 
 @app.get("/api/concepts/{cid}/ego")
@@ -456,8 +613,15 @@ async def api_prefs(req: Request):
         db.set_pref("scribe", body["scribe"])
     if body.get("auto_next") in ("0", "1"):
         db.set_pref("auto_next", body["auto_next"])
-    if body.get("predict") in ("0", "1"):
-        db.set_pref("predict", body["predict"])
+    if body.get("predict") in ("both", "wait", "off", "0", "1"):   # "0"・"1" は v0.5 までの画面の値
+        db.set_pref("predict", {"0": "off", "1": "both"}.get(body["predict"], body["predict"]))
+        db.set_pref("predict_skip", "0")   # 出し方を選び直したら、「次の1回は誘わない」の印も消す
+    if body.get("text_size") in flow.TEXT_SIZES:
+        db.set_pref("text_size", body["text_size"])
+    if body.get("chime") in ("0", "1"):
+        db.set_pref("chime", body["chime"])
+    if body.get("auto_lookup") in ("0", "1"):   # 先生役が「Web で調べるとよい」としたら、聞かずに調べる（v0.5）
+        db.set_pref("auto_lookup", body["auto_lookup"])
     if body.get("tutor_model") in TUTOR_MODELS:
         db.set_pref("tutor_model", body["tutor_model"])
     if isinstance(body.get("keys"), dict):
@@ -499,6 +663,28 @@ async def api_seen_views_add(req: Request):
     return {"seen": sorted(seen)}
 
 
+@app.post("/api/sessions/{sid}/research")
+async def api_research(sid: int, req: Request):
+    """Web で調べてページにする（v0.5）。画面の「Web で調べる」か、設定の「聞かずに調べる」から。"""
+    body = await req.json()
+    q = str(body.get("q") or "").strip()
+    if len(q) < 4:
+        raise HTTPException(400, "調べる問いが短すぎます")
+    with db.tx() as con:
+        if not db.row(con, "SELECT id FROM session WHERE id=?", (sid,)):
+            raise HTTPException(404, "話題がありません")
+    ft = body.get("from_turn")
+    return {"turn_id": pipeline.start_research(sid, q, ft if isinstance(ft, int) else None)}
+
+
+@app.get("/api/pages/{pid}")
+async def api_page(pid: str):
+    page = research.load(pid)
+    if not page:
+        raise HTTPException(404, "ページがありません")
+    return {**page, "status_ja": research.STATUS_JA}
+
+
 @app.post("/api/corpus/refresh")
 async def api_corpus_refresh():
     info = await asyncio.to_thread(corpus.refresh)
@@ -511,6 +697,8 @@ async def api_shelf_url(iid: str):
         it = corpus._state["rows"].get(iid)
     if not it:
         raise HTTPException(404, "棚にありません")
+    if iid.startswith(research.ID_PREFIX):
+        return {"page": iid, "title": it.get("title")}   # Web で調べたページはアプリの中で開く
     return {"url": it.get("url") or f"https://claude.ai/artifact/{iid}", "title": it.get("title")}
 
 

@@ -17,7 +17,7 @@
     calc: "式に数字を入れて、上から一段ずつ計算します。",
     analogy: "左がたとえの側、右が実際の名前、真ん中が両方に共通する働きです。番号と色は本文の同じ語と同じで、指すと相手が光ります。下の欄は、たとえが成り立たない所です。",
     tree: "上が大きな分類で、下へ行くほど細かくなります。",
-    map: "上は広い言葉、下は具体的な言葉、左右は比べる相手、斜めはつながる言葉です。",
+    map: "上は中心より広い言葉、下は中心の種類、横は取り違えやすい相手、箱の中は中心の部品です。どの行も文として読めます。札を押すと、右の地図がその言葉を中心に描き直されます。",
     mermaid: "箱が物事、線がそのつながりです。",
   };
   const NUMBERS = { example: "例の数字", unverified: "確かめていない数字" };
@@ -468,7 +468,7 @@
   // ── 位置の図 ──
   function map(v, opts) {
     const model = M.fromBlock(v);
-    return M.render(model, { states: opts.states || {} }) + (v.gist ? `<p class="mp-gist"><b>${esc(v.center)}</b>：${esc(v.gist)}</p>` : "") + M.chips(model);
+    return (v.gist ? `<p class="mp-gist"><b>${esc(v.center)}</b>：${esc(v.gist)}</p>` : "") + M.render(model, { states: opts.states || {} }) + M.chips(model);
   }
 
   function mermaid(v) { return `<pre class="mermaid-src">${esc(v.code)}</pre>`; }

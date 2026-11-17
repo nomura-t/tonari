@@ -9,7 +9,7 @@ import re
 import time
 import traceback
 
-from . import brain, config, corpus, db, events, fixer, judge, stt, tutor
+from . import brain, config, corpus, db, events, fixer, flow, judge, predfb, readings, recorder, research, stt, tutor
 
 TASKS: set[asyncio.Task] = set()
 RATE_RE = re.compile(r"rate.?limit|429|overloaded|usage limit|529", re.I)
@@ -102,32 +102,114 @@ async def run_voice(turn_id: int, kind_hint: str | None = None) -> None:
 
 async def run_predict(turn_id: int, t: dict) -> None:
     """読む前の予想（声）を文字にして直し、予想した答えに書き添える。先生役には送らない。
-    予想の往復は最初から superseded で作るので、往復の列にも話題の「最後」にも出ない。"""
+    予想の往復は最初から superseded で作るので、往復の列にも話題の「最後」にも出ない。
+    聞き取れなかったときは、画面に知らせる（「文字にしています」のまま残さない）。"""
     sid = t["session_id"]
     try:
         r = await stt.transcribe(config.AUDIO_DIR / t["audio"], keyterms(sid))
-        if not ((r["apple"] or {}).get("text") or r["second"]):
-            return
-        f = await fixer.fix(sid, r["apple"], r["second"], prev_context(sid, t["seq"]), r["second_engine"] or "scribe")
-        save_predict(turn_id, t["ref_turn"], f["text"])
+        if (r["apple"] or {}).get("text") or r["second"]:
+            f = await fixer.fix(sid, r["apple"], r["second"], prev_context(sid, t["seq"]), r["second_engine"] or "scribe")
+            if save_predict(turn_id, t["ref_turn"], f["text"]):
+                return
     except Exception:
         traceback.print_exc()
+    events.publish({"t": "predict_failed", "turn_id": t["ref_turn"], "session_id": sid})
 
 
-def save_predict(turn_id: int, target: int | None, text: str) -> None:
-    """読む前の予想（声）を、予想した答えの往復に書き添える。予想の往復そのものは列に出さない（superseded）。"""
+def save_predict(turn_id: int | None, target: int | None, text: str, via: str = "voice") -> bool:
+    """読む前の予想（声か文字）を、予想した答えの往復に書き添える。声の予想の往復そのものは列に出さない（superseded）。
+    v0.6: 答えを待つあいだの予想は、答えがまだ届いていない往復に付く。そのときは開いた時刻を付けない
+    （開いた時刻は、戻ったときの確かめの時計なので、答えが画面に出たときに付ける）。"""
     with db.tx() as con:
-        r = db.row(con, "SELECT session_id, stage_ms, done_at FROM turn WHERE id=?", (target,)) if target else None
+        r = db.row(con, "SELECT session_id, status, stage_ms, done_at FROM turn WHERE id=?", (target,)) if target else None
         if r:
             st = json.loads(r["stage_ms"] or "{}")
-            st["predict"] = text[:400]
-            st.setdefault("revealed_at", db.now())
+            st["predict"] = text[:2000]   # 送り直し（質問として）で欠けないよう、発言と同じ長さまで残す
+            st["predict_via"] = via
+            st.pop("predict_fb", None)    # 前の予想への照らし合わせは外す（新しい予想に付け直す）
+            if r["status"] == "done":
+                st.setdefault("revealed_at", db.now())
             con.execute("UPDATE turn SET stage_ms=? WHERE id=?", (db.jdump(st), target))
-            con.execute("INSERT INTO log(kind, target, evidence, turn_id, at) VALUES('predict',?,?,?,?)",
-                        (target, text[:400], turn_id, db.now()))
-        con.execute("UPDATE turn SET status='superseded', final_text=? WHERE id=?", (text[:2000], turn_id))
+            con.execute("INSERT INTO log(kind, target, evidence, turn_id, by, at) VALUES('predict',?,?,?,?,?)",
+                        (target, text[:400], turn_id, via, db.now()))
+            flow.note_predict(con)
+        if turn_id:
+            con.execute("UPDATE turn SET status='superseded', final_text=? WHERE id=?", (text[:2000], turn_id))
     if r:
-        events.publish({"t": "turn", "turn_id": target, "session_id": r["session_id"], "status": "done"})
+        events.publish({"t": "turn", "turn_id": target, "session_id": r["session_id"]})
+        # 予想と答えの照らし合わせ（v0.6）。答えがもう届いていればすぐ、まだなら届いたときに走らせる（予備だけ温めておく）
+        if r["status"] == "done":
+            maybe_predict_fb(target)
+        elif predfb.ENABLED:
+            predfb.POOL.warm()
+    return bool(r)
+
+
+def maybe_predict_fb(turn_id: int, force: bool = False) -> bool:
+    """予想と答えがそろった往復に、照らし合わせ役を走らせる（v0.6）。走っている・済んでいる往復には走らせない
+    （force は、前の版でした予想に付けるときと、取れなかったあとのやり直し）。"""
+    if not predfb.ENABLED:
+        return False
+    with db.tx() as con:
+        r = db.row(con, "SELECT session_id, status, final_text, answer_md, stage_ms FROM turn WHERE id=?", (turn_id,))
+        if not r or r["status"] != "done" or not r["answer_md"]:
+            return False
+        st = json.loads(r["stage_ms"] or "{}")
+        prose = tutor.strip_blocks(r["answer_md"])
+        if not predfb.eligible(st.get("predict"), prose):
+            return False
+        fb = st.get("predict_fb") or {}
+        if fb.get("state") == "run":
+            if db.now() - float(fb.get("at") or 0) < predfb.STALE_SEC:
+                return False            # いま走っている
+        elif fb and not force:
+            return False                # もう返してある（取れなかった分のやり直しは force）
+        st["predict_fb"] = {"state": "run", "at": db.now()}
+        con.execute("UPDATE turn SET stage_ms=? WHERE id=?", (db.jdump(st), turn_id))
+    spawn(run_predict_fb(turn_id, r["session_id"], r["final_text"] or "", st["predict"], prose))
+    events.publish({"t": "predict_fb", "turn_id": turn_id, "session_id": r["session_id"]})
+    return True
+
+
+async def run_predict_fb(turn_id: int, sid: int, said: str, pred: str, prose: str) -> None:
+    """照らし合わせ役の返しを、その往復に書き添える。取れなかったときは、取れなかった印を残す（画面がやり直しを出す）。
+    理解の記録（分かる・分からない）には入れない。段の数だけを log に残す。"""
+    res = None
+    try:
+        res = await predfb.judge(said, pred, prose)
+    except Exception:
+        traceback.print_exc()
+    with db.tx() as con:
+        old = db.row(con, "SELECT stage_ms FROM turn WHERE id=?", (turn_id,))
+        if not old:
+            return
+        st = json.loads(old["stage_ms"] or "{}")
+        if st.get("predict") != pred:
+            return      # 待つあいだに、予想が外されたか言い直された。古い予想への返しは書かない（言い直しには別に走っている）
+        st["predict_fb"] = {"state": "done", **res} if res else {"state": "fail"}
+        con.execute("UPDATE turn SET stage_ms=? WHERE id=?", (db.jdump(st), turn_id))
+        if res:
+            con.execute("INSERT INTO log(kind, target, state, turn_id, at) VALUES('predict_fb',?,?,?,?)",
+                        (turn_id, res["core"], turn_id, db.now()))
+    events.publish({"t": "predict_fb", "turn_id": turn_id, "session_id": sid})
+
+
+def clear_predict(target: int) -> str | None:
+    """書き添えた予想を外す（取り違えたときの戻し。v0.6）。外した予想の文を返す。"""
+    with db.tx() as con:
+        r = db.row(con, "SELECT session_id, stage_ms FROM turn WHERE id=?", (target,))
+        if not r:
+            return None
+        st = json.loads(r["stage_ms"] or "{}")
+        text = st.pop("predict", None)
+        st.pop("predict_via", None)
+        st.pop("predict_fb", None)
+        if text is None:
+            return None
+        con.execute("UPDATE turn SET stage_ms=? WHERE id=?", (db.jdump(st), target))
+        con.execute("INSERT INTO log(kind, target, evidence, at) VALUES('unpredict',?,?,?)", (target, text[:400], db.now()))
+    events.publish({"t": "turn", "turn_id": target, "session_id": r["session_id"]})
+    return text
 
 
 async def run_text(turn_id: int, kind: str = "question") -> None:
@@ -179,8 +261,20 @@ async def ask_tutor(turn_id: int, text: str, kind: str, via: str, unsure: list[d
     recap = tutor.recap_text(sid, t["seq"]) if need_recap and t else None
     if need_recap:
         stage["fresh_prompt"] = True   # 指示が変わったので新しい会話で始めた往復の印
+    plan = tutor.detail_plan(sid, text, kind, s.get("detail") or "auto", ref, t["seq"] if t else None)
+    stage["budget"] = plan   # この答えの本文の字数の目安と理由（v0.5・話の間合い）
+    # v0.6: 答えを待つあいだに予想を誘うか（flow.predict_offer）。種類と誘いは、答えが届く前に記録へ書く（画面が待ちの間に読む）
+    stage["kind"] = kind
+    with db.tx() as con:
+        if t and flow.predict_offer(con, text, kind, via, bool(t["ref_turn"])):
+            stage["offer"] = "predict"
+        now_st = json.loads((db.row(con, "SELECT stage_ms FROM turn WHERE id=?", (turn_id,)) or {}).get("stage_ms") or "{}")
+        now_st.update({k: stage[k] for k in ("kind", "offer", "budget") if k in stage})
+    set_turn(turn_id, stage_ms=db.jdump(now_st))
     content = tutor.turn_content(sid, text, kind, via, unsure, s.get("detail") or "auto", ref, stage.get("hedges"),
-                                 predict, check_id if kind == "answer" else None, recap)
+                                 predict, check_id if kind == "answer" else None, recap, plan)
+    if config.RECORDER != "off":
+        recorder.POOL.warm()   # 答えが流れるあいだに記録役を立てておく
     t2 = time.time()
     md = ""
     for attempt in range(4):
@@ -232,7 +326,119 @@ async def ask_tutor(turn_id: int, text: str, kind: str, via: str, unsure: list[d
         stage["analogy"] = await judge.check_pairs(tutor.strip_blocks(md), analogies)
         stage["pair_judge"] = int((time.time() - t4) * 1000)
     finish(turn_id, sid, md, text, stage, kind, judged, check_id if kind == "answer" else None)
+    spawn(run_recorder(turn_id, sid, md, text))
+    maybe_predict_fb(turn_id)   # 待つあいだに予想していれば、届いた答えと照らし合わせる（v0.6）
+    # v0.6: 話題の最初の問いは、答えを届けたあとに、別の読みがあったかを読みの判定役が確かめる（readings.py）
+    with db.tx() as con:
+        first = t is not None and db.row(con, "SELECT COUNT(*) AS n FROM turn WHERE session_id=? AND seq<? AND status='done'",
+                                         (sid, t["seq"]))["n"] == 0
+    prose = tutor.strip_blocks(md)
+    if readings.eligible(kind, via, first, bool(t and t["ref_turn"]), text, prose):
+        readings.POOL.warm()
+        spawn(run_readings(turn_id, sid, text, prose))
+    if pre.get("lookup") and db.get_pref("auto_lookup", "0") == "1":
+        start_research(sid, pre["lookup"]["q"], turn_id)   # 設定で「聞かずに調べる」にしているとき
     await brain.TUTORS.trim()
+
+
+async def run_recorder(turn_id: int, sid: int, md: str, said: str) -> None:
+    """答えを届けたあとに、記録役が記録用の地図と確かめの問いを作って、この往復に足す（v0.5）。
+    先生役が自分で書いた塊（位置の図を答えの図にした・古い指示の会話）があれば、その分は作らない。"""
+    pre = tutor.parse_blocks(md)
+    need_map, need_check = pre["map"] is None, not pre["check"]
+    if config.RECORDER == "off" or not (need_map or need_check) or len(tutor.strip_blocks(md)) < 40:
+        return
+    t0 = time.time()
+    try:
+        extra = await recorder.record(sid, said, md, need_map, need_check)
+    except Exception as e:
+        traceback.print_exc()
+        extra, err = "", f"{type(e).__name__}: {e}"[:200]
+    else:
+        err = None
+    ms = int((time.time() - t0) * 1000)
+    add = tutor.parse_blocks(extra) if extra else None
+    with db.tx() as con:
+        old = db.row(con, "SELECT answer_md, stage_ms, status FROM turn WHERE id=?", (turn_id,))
+        if not old or old["status"] != "done" or old["answer_md"] != md:
+            return   # 記録役を待つあいだに、この往復が送り直された
+        st = json.loads(old["stage_ms"] or "{}")
+        st["recorder"] = ms
+        checks = []
+        if err:
+            st["recorder_error"] = err
+        if add:
+            kept, dropped = tutor.filter_checks(add["check"], md)
+            if add["map"] and need_map:
+                st["center"] = tutor.merge_map(con, sid, turn_id, add["map"])
+            checks = tutor.save_checks(con, sid, turn_id, kept) if kept and need_check else []
+            st["block_errors"] = (st.get("block_errors") or []) + add["errors"] + dropped
+            st["recorded"] = {"map": bool(add["map"] and need_map), "checks": len(checks)}
+            md2 = md.rstrip() + "\n\n" + extra
+        else:
+            md2 = md
+        con.execute("UPDATE turn SET answer_md=?, stage_ms=? WHERE id=?", (md2, db.jdump(st), turn_id))
+    events.publish({"t": "recorded", "turn_id": turn_id, "session_id": sid, "center": st.get("center"), "checks": len(checks)})
+
+
+async def run_readings(turn_id: int, sid: int, said: str, prose: str) -> None:
+    """読みの判定役の結果（別の読み）を、その往復に書き添える。取れなかった・無かったときは何もしない。"""
+    try:
+        alt = await readings.judge(said, prose)
+    except Exception:
+        traceback.print_exc()
+        return
+    if not alt:
+        return
+    with db.tx() as con:
+        old = db.row(con, "SELECT stage_ms, status FROM turn WHERE id=?", (turn_id,))
+        if not old or old["status"] != "done":
+            return
+        st = json.loads(old["stage_ms"] or "{}")
+        st["alt"] = alt
+        con.execute("UPDATE turn SET stage_ms=? WHERE id=?", (db.jdump(st), turn_id))
+    events.publish({"t": "alt", "turn_id": turn_id, "session_id": sid})
+
+
+def start_research(sid: int, question: str, from_turn: int | None = None) -> int:
+    """Web で調べる往復を話題に足して、調べ役を走らせる（v0.5）。答えの往復と同じ列に並び、待つあいだ別の話題へ移れる。"""
+    from .app import new_turn
+    with db.tx() as con:
+        st = {"kind": "research", **({"from_turn": from_turn} if from_turn else {})}   # 開いた時刻は画面が出したときに付く
+        tid = new_turn(con, sid, "research", final_text=question[:1000], title=("調べ: " + question)[:16], stage_ms=db.jdump(st))
+    events.publish({"t": "turn", "turn_id": tid, "session_id": sid, "status": "recorded", "new": True})
+    spawn(run_research(tid))
+    return tid
+
+
+async def run_research(turn_id: int) -> None:
+    with db.tx() as con:
+        t = db.row(con, "SELECT * FROM turn WHERE id=?", (turn_id,))
+        s = db.row(con, "SELECT model FROM session WHERE id=?", (t["session_id"],))
+    sid, stage = t["session_id"], json.loads(t["stage_ms"] or "{}")
+    set_turn(turn_id, status="thinking")
+    loop = asyncio.get_running_loop()
+
+    def on_tool(name: str, inp: dict) -> None:   # 調べ役の進み（検索の語・開いたページ）を画面に出す
+        what = inp.get("query") or inp.get("url") or ""
+        loop.call_soon_threadsafe(events.publish, {"t": "tool", "turn_id": turn_id, "session_id": sid,
+                                                    "name": f"{'検索' if name == 'WebSearch' else '読む'}: {str(what)[:60]}"})
+    t0 = time.time()
+    try:
+        page = await research.run(t["final_text"], config.RESEARCH_MODEL or s["model"], on_tool)
+        page["session_id"], page["turn_id"] = sid, turn_id
+        research.save(page)
+        await asyncio.to_thread(corpus.refresh)   # 写しに混ぜる（先生役が次から読める・「」と札を照らせる）
+    except Exception as e:
+        traceback.print_exc()
+        set_turn(turn_id, status="error", error=f"調べられませんでした（{type(e).__name__}: {e}）"[:300])
+        return
+    stage.update(research=int((time.time() - t0) * 1000), page=page["id"], counts=page.get("counts"), rules=4)
+    with db.tx() as con:
+        con.execute("UPDATE turn SET answer_md=?, status='done', done_at=?, stage_ms=? WHERE id=?",
+                    (research.summary_md(page), db.now(), db.jdump(stage), turn_id))
+        con.execute("UPDATE session SET updated_at=? WHERE id=?", (db.now(), sid))
+    events.publish({"t": "done", "turn_id": turn_id, "session_id": sid, "center": None, "checks": 0})
 
 
 def finish(turn_id: int, sid: int, md: str, said: str, stage: dict, kind: str = "question",
@@ -252,12 +458,16 @@ def finish(turn_id: int, sid: int, md: str, said: str, stage: dict, kind: str = 
         st.update(stage)
         # 予想の帯を出さない答え（命令・確かめへの答え・図からの依頼・予想を止めている）は、届いた時点で開いたとみなす。
         # そうしないと、その答えの確かめの問いが戻ったときに出ない（return_check は開いた時刻から数える）
-        if kind != "question" or (old and old["via"] == "click") or db.get_pref("predict", "1") == "0":
-            st.setdefault("revealed_at", db.now())
+        # 開いた時刻（revealed_at）は、届いた時点では付けない（v0.6）。画面が答えを読める形で出したとき（同じ話題で
+        # 待っていた・話題を開いた）か、戻って予想するか「すぐ読む」で開いたときに、画面の側から付ける。v0.5 までは、
+        # 予想の帯を通らない答え（命令・言い直し・確かめへの答え・図から・予想を出さない設定）に届いた時点で付けていたが、
+        # 本人が別の話題にいるあいだに届くと時計が先に進み、読んでいない答えの確かめが出ていた
         st["grades"] = grades
         st["center"] = center
         st["block_errors"] = blocks["errors"]
         st["rules"] = 4   # v0.4 の決まりで読んだ答えの印（読み直しで、たとえを前の決まりに戻さない）
+        if blocks.get("lookup"):
+            st["lookup"] = blocks["lookup"]   # 先生役が「Web で調べるとよい」とした問い（画面が入口を出す）
         # 選んだ見せ方を往復ごとに残す（あとで「どの形の答えのあとに確かめが当たったか」を数えるため）
         st["shapes"] = [{"type": v["type"], "name": v["name"], "why": v.get("why", "")} for v in blocks["views"]]
         con.execute("UPDATE turn SET answer_md=?, status='done', done_at=?, stage_ms=? WHERE id=?",

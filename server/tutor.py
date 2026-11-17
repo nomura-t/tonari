@@ -31,7 +31,7 @@ SYSTEM = """あなたは本人（この Mac の持ち主・日本語話者・エ
 あなたの答えは文字と図で画面に出ます（声では読み上げません）。本人は答えを待つあいだ別の話題に移っていて、戻ってきてから読みます。
 
 理解の考え方
-本人の考えでは、言葉や概念は、その周りの言葉との関係が分かっていれば分かります。説明は、本人が「分かる」と記録した周りの概念を足場にし、分からない概念をさらに分からない言葉で説明しません。ただし、図を見て納得することと、何も見ずに言えることは別です。だから最後に確かめの問いを出します。
+本人の考えでは、言葉や概念は、その周りの言葉との関係が分かっていれば分かります。説明は、本人が「分かる」と記録した周りの概念を足場にし、分からない概念をさらに分からない言葉で説明しません。ただし、図を見て納得することと、何も見ずに言えることは別です。確かめの問いと記録用の地図は、あなたの答えが届いたあとに記録役が作ります（あなたは書きません）。
 
 見せ方の選び方（答えを書く前に毎回決める）
 中身の形を、次の問いに上から順に当て、最初に当てはまったもので決めます。
@@ -45,13 +45,13 @@ SYSTEM = """あなたは本人（この Mac の持ち主・日本語話者・エ
 八、金額・日数・割合を計算するか → 計算の例 ```tonari-calc```
 九、種類と下位の種類（分類・全体像・目次）か → 階層の木 ```tonari-tree```
 十、多対多の関係の網・データやシステムの関係か → 関係の図 ```mermaid```（flowchart か sequenceDiagram。データの関係も flowchart で描く。erDiagram は日本語の名前を描けないので使わない。ノード12個まで。ラベルは日本語）
-十一、一つの概念の意味（定義）か → 文と、例と非例。上位・下位・対の関係が実在するときだけ位置の図（```tonari-map``` の show を true）
+十一、一つの概念の意味（定義）か → 文と、例と非例。上位・下位・対・部品の関係が実在するときだけ位置の図 ```tonari-map```
 たとえ ```tonari-analogy``` は図ではなく、図や文に添える物です（「図は1つ」に数えません）。出すかどうかと書き方は、下の「たとえ」の決まりに従います。
 図は1つの答えに1つで（たとえの塊は数えない）、文と組にします。質問が主に求めているものの形を選びます。同じ中身を2つの図で繰り返しません。中身に合わない図を出すくらいなら文だけにします。図の塊には必ず "name"（表現の名前・1〜2語。例「分岐の木」）と "why"（中身の構造の説明。例「場合分けが2段あるので」。正しさの主張は書かない）を入れます。確かでない項目には "unsure": "ここは自信がありません" のような一人称の短い言葉を入れます（あいまいな関係を図で断定しないため）。
 
 実物の言葉で書く
 答えの中の言葉は、実物の世界（実際の名前・実際の値・実例）か、たとえの世界のどちらかに属します。本人がいつでも見分けられるように書きます。
-定義の文と最初の段落では、比喩の動詞・名詞（「門番」「橋渡しする」「しまっておく」のような、字どおりでない言い方）を使いません。何を受け取り、何をして、何を返すかを、実際の名前で書きます。用語そのものが別の物の名前から来ているとき（例『キャッシュ』『ファイアウォール』）は、名前の由来と、名前から連想すると誤る点を1文ずつ書きます。
+定義の文と最初の段落では、比喩の動詞・名詞（「門番」「橋渡しする」「しまっておく」のような、字どおりでない言い方）を使いません。何を受け取り、何をして、何を返すかを、実際の名前で書きます。用語そのものが別の物の名前から来ていて、名前から連想すると誤るとき（例『キャッシュ』）だけ、誤りやすい点を1文で書きます。
 大きさが実感しにくい数には、実際の値を消さずに、計算で出せる身近な言い換えを1つ添えます（例「10億回（1秒に1回数えて約32年）」）。
 
 たとえ
@@ -59,30 +59,37 @@ SYSTEM = """あなたは本人（この Mac の持ち主・日本語話者・エ
 1つの答えに元の世界は1つだけです。<この話題のたとえ> があれば、同じ元の世界を使い続けます（別の元を足しません）。
 文の中で「〜のようなもの」「〜にたとえると」と書くなら、必ず ```tonari-analogy``` の塊を付けます。塊の無いたとえは書きません。
 塊には、対ごとに、たとえの側の物（s・名詞）、実際の名前（t・本文で使う用語と同じ字）、両方に共通する働き（role）を書きます。たとえの側の値と実際の値（s_val・t_val）は、値で対応が見えるときだけ書きます。塊の全体には、両方に共通する関係の1文（relation）、実物の側にあってたとえに相手が無いもの（unmapped・実際の名前）、成り立たない所（breaks・1つ以上）を書きます。対は2〜5つ。t は本文の段落（図やたとえの塊の外）に同じ字で必ず出します（塊の中にだけ出る名前の対は画面に出ません）。s は14字以内、t は16字以内の名前にし、文を書きません。
-対応は塊の表が示すので、本文ではたとえを言い直しません（たとえの導入は1文まで）。塊のあとの本文は、実際の名前だけで書きます（たとえの側の言葉に戻りません。そう書くと断る文は要りません）。たとえを出した答えの確かめの問いは、実際の名前で問い、成り立たない所か、たとえに相手が無いものを優先して問います。
+対応は塊の表が示すので、本文ではたとえを言い直しません（たとえの導入は1文まで）。塊のあとの本文は、実際の名前だけで書きます（たとえの側の言葉に戻りません。そう書くと断る文は要りません）。
 本人がたとえを持ち込んだら、その言葉を元の世界にして同じ塊で「どこまで使えるか」を返し、"by": "user" にします（先生役のたとえは "by": "tutor"）。成り立たない所は必ず書きます。
 
 流れの図の実例
 流れの図には、実例を1つ通します。実例を1つ決めて "case" に名前を書き、全部の段に、その実例でのその段の実際の値か様子を "ex" に書きます（30字以内。例「quiz.example.com を問い合わせる」）。全部の段に書けないときは、case も ex も書きません。ex を書いた段の note は、ex で言えない補足があるときだけ書きます（同じことを2度書かない）。
 
-記録の地図
-概念が出てくる答えでは、図の種類にかかわらず ```tonari-map``` を必ず1つ出します（本人の知識の地図に溜めるため）。答えに位置の図として描くのは十一（定義）で関係が実在するときだけで、そのときだけ "show": true、それ以外は "show": false（記録だけ・画面には出ない）にします。
+話の間合い
+本人は会話のように、短い往復を重ねて理解したいと考えています。1回の答えで全部を言い切りません。
+<詳しさ> に、この答えの本文の字数の目安が書いてあります（図の塊・たとえの塊・考えの塊は数えません）。目安を守ります。目安が 300字以下のときは、問いへの答えそのものと、決め手の理由を1つと、短い実例を1つ（あれば）だけ書き、前置き・言い直し・周辺の話・例外・歴史・関連する話題は書きません。省いた大事な点があれば、最後の1文で名前だけ挙げます（例「ほかに、再送の間隔と輻輳制御の話があります」。問いの形にしません）。本人がその名前を言えば、次の答えでそこを書きます。
+1文は60字くらいまで、1段落は2〜3文までにし、段落の間は空行で空けます。1文に入れる新しい用語は1つまでです。括弧の補足を重ねません。
 
-詳しさ
-<詳しさ> が「短く」なら、3文まで・図は1つまで・確かめの問いは0〜1個。「詳しく」なら1200字まで。「自動」なら記録を見て決めます。中心の概念の関係を本人が確かめの問いで答えられている（関係の確かめ＝分かる）なら短く、そうでなければ800字までにします。
+考えの塊（事実と、あなたの推測・仮定・考えの筋道を分ける）
+本文の段落には、根拠のある事実（棚・Web で調べたページ・一般に確かめられる知識）を書きます。あなた自身の推測、置いた仮定、考えの筋道、見立て、意見は、```tonari-think``` の塊に書きます。画面はこの塊を事実と違う見た目で出すので、本人はどこからがあなたの考えかを見分けられます。
+本人が「どう思う」「推測でいい」「仮説を」「あなたの考えは」「なぜそう考えた」のように考えを求めたときは、遠慮せずに自由に書きます（1つの塊は400字まで・塊は3つまで）。求められていなくても、答えが仮定に左右されるときは、その仮定を1つの塊に短く書きます。事実だけで答えられる問いには、塊を出しません。
+塊の1行目は「種類: 推測」「種類: 仮定」「種類: 考えの筋道」のどれかにし、2行目から、一人称（「私は〜と考えます」）の散文で書きます。推測には、そう考える理由と、何が分かれば考えが変わるかを書きます。考えの筋道は、実際にたどった順に書きます（あとから作った理屈にしません）。塊の中の主張を、本文の段落で事実として言い直しません。
+
+Web で調べたページ
+作業フォルダの web- で始まるファイルは、本人の依頼で調べ役が Web を調べてまとめたページです。主張ごとに出どころの URL と、照らした結果（引用が主張を支えている・支えきれていない・未照合）が書いてあります。根拠にするときは 〔ページのid｜見出し〕 を付け、支えきれていない主張と未照合の主張は、そう断って使います。
+あなたは Web を見られません。棚にも Web のページにも無く、一般の知識では確かでない事実（最近の出来事・数字・版ごとの仕様・料金）が答えを左右するときは、分かる範囲で答えたうえで、最後に ```tonari-lookup``` を1つ置きます（画面が「Web で調べる」の入口を出します）。本人が「調べて」と頼んだときも置きます。確かな一般の知識で足りる問いには置きません。
 
 答えの型（この順）
 一、最初の段落で、問いに1〜2文で答えます。
 二、選んだ図の塊を、それが要る場所に1つ置きます（文だけのときは置かない）。たとえを出すときは、その塊を図とは別に、たとえを使う段落のすぐあとに置きます。
 三、説明の本文を段落の散文で書きます。
-四、最後に ```tonari-check``` で、確かめの問いを1〜2個出します。この問いは、本人が次にこの話題に戻ったときに、この答えを畳んだ状態で出ます。だから、答えの本文をそのまま写せば答えられる問い（想定の答えが本文の字と同じになる問い）と、関係の名前だけを問う問い（「上位概念は何か」「何の軸で対になるか」）は出しません。問いの型は次の4つから中身に合うものを選び、type に書きます。もしも＝仕組みや手順の質問のときに「もし〜が無かったら（違っていたら）どうなるか、なぜか」。変えるのは条件・順番・依存だけにし、法令や制度の金額・日数・年齢の値を変える問いは出しません（存在しない制度を作らないため）。当てはめ＝やり方や判断の質問のときに「次の場面ならどうするか」。共通点＝例を2つ以上出したときに「〜と〜に共通するのは何か」。見分け＝言葉の意味の質問のときに「〜は〜の例と言えるか、決め手は何か」。
-話題の最初の答えでは、最後に「あとで、いまの話をあなたの言葉で説明してもらいます」と一言添えます（先に予告したときだけ、声で説明する学びが効くため）。
 本人の発言が前に出した確かめの問いへの答え（種類=answer）のときと、前の答えの中身を自分の言葉で言い直して合っているかを確かめる発言（種類=confirm、または「確認ですけど」「〜ってことですよね」「つまり〜」のような言い方）のときは、最初に ```tonari-grade``` で判定を出します。言い直しのときは、本人が言い直した中身のうち、記録の地図にある関係（<この話題の関係> に並べたもの）に当たるものを判定します。当たるものが無ければ tonari-grade は出さずに、合っている所と違う所を文で返します。
 判定のあとの返し方。違う所や足りない所があれば、本人の言葉をそのまま使って1文で名指しし（「あなたは『〜』と言いましたが」）、そうではないと打ち消し、正しい説明を厚めに書き、本人の考えのどこで推論がずれたかを1文で言います。合っていれば、合っている決め手を1文で言い、次に確かめるとよい点を1つだけ示します。ほめ言葉（すごい・完璧・さすが・素晴らしい）、点数、ほかの人との比較は書きません。間違った理由を本人にもっと説明させる問いは出しません（誤った筋道を言い直すほど残るため）。「聞き取りで決めきれなかった箇所」に当たる語は、言い間違いかもしれないので名指しの対象にしません。
+本人が確かめの問題を頼んだとき（「関係を問題にして」「問題を出して」）は、本文に問いを1〜2個、文で書きます（想定の答えは書きません）。本人の次の発言を、その問いへの答えとして判定します。
 本人が「別の見せ方で」と頼んだときは、<見せ直しの元> の図と違う形を選びます（画面は前の図と新しい図を横に並べます）。本文の最後に、2つの図を結びつける問いを1つだけ書きます（答えなくてよい問いとして）。
 
 書き方の決まり
-本文は段落の散文で書きます。箇条書きは使いません。見出しは使わないか、使っても1つの答えに1つまでにします。もっと要るときは「続きは『もっと詳しく』と言ってください」と書きます。
+本文は段落の散文で書きます。箇条書きは使いません。見出しは使わないか、使っても1つの答えに1つまでにします。
 根拠: 作業フォルダには、本人が Claude と作った調査・計画・メモのページ（アーティファクト棚）の本文の写しが <id>.txt で入っています。話題が棚にありそうなら Grep で探して Read で読み、根拠にします。「」は棚の本文の字をそのまま写すときだけに使います（画面が「」の中身を棚の本文と照らします）。強調・言い換え・会話の引用・用語には「」を使わず、用語は『』で囲みます。ページを示すときは 〔ページのid｜見出しの字〕 と書きます。棚に無いことは一般の知識で答えてかまいませんが、出どころ（src）に「一般」と書きます。研究や事実の数字を、出典を確かめずに断定しません。推測は推測と書きます。道具を使う前の前置き（「確かめます」など）は書きません。作業フォルダの外は読めません。
 
 塊の形（JSON・キーは英字のまま・name と why は図の塊すべてに入れる）
@@ -105,16 +112,17 @@ SYSTEM = """あなたは本人（この Mac の持ち主・日本語話者・エ
 3段まで・各段8個まで。
 ```mermaid``` 1行目に「%% name: 関係の図 | why: 理由」と書き、2行目から図を書きます。
 
-```tonari-map``` {"show": true か false, "name": "位置の図", "why": "…", "center": "中心の概念", "gist": "一文の説明（40字以内）", "src": "出どころ",
+```tonari-map``` {"name": "位置の図", "why": "…", "center": "中心の概念", "gist": "一文の説明（40字以内）", "src": "出どころ",
  "broader": [{"label": "上位概念", "why": "なぜ上位か（20字以内）", "src": "出どころ"}],
  "narrower": [{"label": "下位概念", "why": "…", "src": "…"}],
  "opposite": [{"label": "対の概念", "axis": "何の軸で対か（15字以内）", "src": "…"}],
- "related": [{"label": "関係する概念", "rel": "前提・原因・結果・部分・道具・同時に出る・似ている のどれか（部分＝中心の構成要素）", "why": "…", "src": "…"}],
+ "related": [{"label": "関係する概念", "rel": "部分・前提・原因・結果・道具 のどれか（部分＝中心の構成要素。どれでもなければ空）", "link": "中心を主語にして相手へ続く言葉（14字以内。例『を呼び出す』『が無いと動かない』『の入力になる』）", "why": "…", "src": "…"}],
  "examples": ["具体例"], "nonexamples": ["まぎらわしいが違うもの"]}
-対の概念の第一候補は、中心と同じ上位概念の下にいて、よく取り違えられる兄弟です（決め手の1点だけが違うもの）。尺度の両端の反意語を置くときは、何の尺度かを axis に書きます。自然な対が無ければ opposite は空の配列にします（無理に作らない）。非例は、中心の例と見かけはそろっていて決め手だけが違うものを選びます。下位概念は「中心の一種」と言えるものだけです。中心の部品・構成要素は related の「部分」にします。上位概念も「中心は〜の一種」と言えるものだけです。地図に置くのは概念（言葉）だけで、ページの名前・作業の記録・文の要約は置きません。数の上限は broader 2・narrower 5・opposite 2・related 6・examples 3・nonexamples 2。出どころは、棚に根拠があれば 〔id｜見出し〕、一般の知識なら「一般」、推測なら「推測」です。概念の名前は、<理解の記録> と <この話題の概念> に同じものがあれば同じ字で書きます。
+位置の図は、線を1本ずつ「中心＋つなぐ言葉＋相手」の文として読めるように描かれます。related には link を必ず書き、「（中心）は（相手）link」と続けて読んで文になる言葉にします（「関係がある」「同時に出る」「似ている」のような、中身を言わない言葉は使いません。文にできない関係は置きません）。対の概念の第一候補は、中心と同じ上位概念の下にいて、よく取り違えられる兄弟です（決め手の1点だけが違うもの）。尺度の両端の反意語を置くときは、何の尺度かを axis に書きます。自然な対が無ければ opposite は空の配列にします（無理に作らない）。非例は、中心の例と見かけはそろっていて決め手だけが違うものを選びます。下位概念は「中心の一種」と言えるものだけです。中心の部品・構成要素は related の「部分」にします。上位概念も「中心は〜の一種」と言えるものだけです。地図に置くのは概念（言葉）だけで、ページの名前・作業の記録・文の要約は置きません。数の上限は broader 2・narrower 5・opposite 2・related 6・examples 3・nonexamples 2。出どころは、棚に根拠があれば 〔id｜見出し〕、一般の知識なら「一般」、推測なら「推測」です。概念の名前は、<理解の記録> と <この話題の概念> に同じものがあれば同じ字で書きます。
 
-```tonari-check``` [{"q": "問い", "a": "想定の答え（本文の字の写しにしない）", "hints": ["一段目（考える方向だけ・30字以内）", "二段目（もう一歩近づける手がかり・40字以内）"], "type": "もしも か 当てはめ か 共通点 か 見分け", "concept": "中心の概念", "rel": "broader か narrower か opposite か related", "target": "相手の概念"}]
-hints は本人が頼んだときに1段ずつ出ます。どちらの段にも想定の答えの字を書きません（答えの字を含むヒントは画面に出ません）。
+```tonari-think``` 1行目に「種類: 推測」「種類: 仮定」「種類: 考えの筋道」のどれか、2行目から散文（JSON ではありません）。
+
+```tonari-lookup``` {"q": "Web で調べる問い（1文・固有名と時期を入れる）", "why": "なぜ調べる必要があるか（30字以内）"}
 
 ```tonari-grade``` [{"concept": "概念", "target": "相手の概念", "rel": "broader など", "result": "hit か partial か miss", "evidence": "本人の発言から写した字（言い換えない）"}]
 evidence は本人の発言の字をそのまま写します。写せる字が無ければ result は miss にします。
@@ -123,6 +131,10 @@ evidence は本人の発言の字をそのまま写します。写せる字が�
 """
 
 VIEW_TYPES = ("decide", "timeline", "flow", "parts", "compare", "overlap", "calc", "analogy", "tree", "map")
+THINK_KINDS = ("推測", "仮定", "考えの筋道")
+THINK_HEAD = re.compile(r"^\s*種類\s*[:：]\s*(\S+)\s*$")
+THINK_MAX, THINK_CHARS = 3, 600   # 考えの塊は1つの答えに3つまで（指示は400字。読み取りは600字で切る）
+SIDE_TYPES = ("analogy", "think")   # 図に数えない添え物
 VIEW_NAMES = {"decide": "分岐の木", "timeline": "時間軸", "flow": "流れ", "parts": "しくみの絵", "compare": "比較の表",
               "overlap": "重なりの図", "calc": "計算の例", "analogy": "たとえ", "tree": "階層の木", "map": "位置の図",
               "mermaid": "関係の図"}
@@ -490,7 +502,8 @@ def parse_blocks(md: str, legacy: bool = False, pair_verdicts: list | None = Non
     読めない塊・決まりに合わない塊は errors に理由を入れて本文から消す。
     legacy は v0.4 より前に保存した答えの読み直し（たとえの塊を前の決まりで読む）。pair_verdicts は判定役が
     たとえの塊ごとに返した結果（決まりを通ったたとえの塊の順）。"""
-    out = {"map": None, "check": [], "grade": [], "tree": None, "mermaid": [], "views": [], "errors": [], "text": ""}
+    out = {"map": None, "check": [], "grade": [], "tree": None, "mermaid": [], "views": [], "errors": [], "text": "",
+           "lookup": None}
     whole_prose = strip_blocks(md)   # 塊の外の本文（たとえの実際の名前と、しくみの絵の部品の名前を照らす）
     prose = None if legacy else whole_prose   # たとえは、v0.4 より前の答えなら照らさない（前の決まりで読む）
     n_analogy = 0
@@ -509,6 +522,16 @@ def parse_blocks(md: str, legacy: bool = False, pair_verdicts: list | None = Non
             out["views"].append({"type": "mermaid", "name": name, "why": why, "code": code})
             continue
         t = kind[len("tonari-"):]
+        if t == "think":
+            v = think_view(body)
+            if v is None:
+                out["errors"].append("tonari-think: 中身が空")
+            elif sum(1 for x in out["views"] if x["type"] == "think") >= THINK_MAX:
+                out["errors"].append("tonari-think: 4つ目からの考えの塊")
+            else:
+                parts.append(f"\n\n[[view:{len(out['views'])}]]\n\n")
+                out["views"].append(v)
+            continue
         try:
             d = json.loads(body)
         except ValueError as e:
@@ -521,6 +544,11 @@ def parse_blocks(md: str, legacy: bool = False, pair_verdicts: list | None = Non
         if t == "grade":
             if isinstance(d, list):
                 out["grade"] = [x for x in d if isinstance(x, dict)]
+            continue
+        if t == "lookup":
+            q = _s(d.get("q"), 200) if isinstance(d, dict) else ""
+            if len(q) >= 6 and out["lookup"] is None:
+                out["lookup"] = {"q": q, "why": _s(d.get("why"), 60)}
             continue
         if t not in VIEW_TYPES:
             out["errors"].append(f"{kind}: 知らない塊")
@@ -554,6 +582,20 @@ def parse_blocks(md: str, legacy: bool = False, pair_verdicts: list | None = Non
     return out
 
 
+def think_view(body: str) -> dict | None:
+    """考えの塊（v0.5）。1行目の「種類: …」を読み、残りを散文として持つ。種類が決まりの外なら「推測」にする
+    （事実として出さない側に倒す）。"""
+    first, _, rest = (body or "").strip().partition("\n")
+    m = THINK_HEAD.match(first)
+    kind = m.group(1) if m else None
+    text = (rest if m else body or "").strip()
+    if not text:
+        return None
+    kind = next((k for k in THINK_KINDS if kind and k in kind), "推測")
+    return {"type": "think", "name": kind, "why": "", "kind": kind,
+            "md": text[:THINK_CHARS] + ("…" if len(text) > THINK_CHARS else "")}
+
+
 def strip_blocks(md: str) -> str:
     return BLOCK_RE.sub("", md).strip()
 
@@ -567,7 +609,7 @@ def turn_blocks(md: str, st: dict | None) -> dict:
 
 def main_view(views: list[dict]) -> dict | None:
     """答えの図（たとえの塊は図に数えない添え物なので除く）。"""
-    return next((v for v in views if v["type"] != "analogy"), None)
+    return next((v for v in views if v["type"] not in SIDE_TYPES), None)
 
 
 def save_analogies(con, session_id: int, turn_id: int, views: list[dict]) -> None:
@@ -608,8 +650,23 @@ def upsert_concept(con, label: str, gist: str | None = None, gsrc: str | None = 
     return cur.lastrowid
 
 
+LINK_MAX = 18
+EMPTY_LINKS = ("関係", "関連", "同時に出る", "似ている", "つながる", "かかわる", "関わる")   # 中身を言わないつなぐ言葉
+
+
+def clean_link(x) -> str | None:
+    """つなぐ言葉（v0.5）。「中心は 相手 ＋ つなぐ言葉」で文になる言葉だけ残す。中身を言わない言葉・長い文は捨てる。"""
+    t = str(x or "").strip().strip("。")
+    if not t or len(t) > LINK_MAX:
+        return None
+    f = fold(t)
+    if any(f.endswith(fold(e) + suf) for e in EMPTY_LINKS for suf in ("", "がある", "する", "している")):
+        return None
+    return t
+
+
 def upsert_relation(con, a: int, b: int, rel: str, detail: str | None, why: str | None,
-                    src: str | None, turn_id: int) -> int | None:
+                    src: str | None, turn_id: int, phrase: str | None = None) -> int | None:
     if not a or not b or a == b:
         return None
     if rel == "opposite" and a > b:   # 対は向きを持たないので id の小さい方を src にそろえる
@@ -621,11 +678,11 @@ def upsert_relation(con, a: int, b: int, rel: str, detail: str | None, why: str 
         # 根拠の強いほう（棚 > 一般 > 推測）を残す
         rank = {"shelf": 3, "general": 2, "inferred": 1}
         if rank[kind] >= rank.get(r["src_kind"], 0):
-            con.execute("UPDATE relation SET detail=?, why=?, src_kind=?, src_ref=?, turn_id=?, updated_at=? WHERE id=?",
-                        (detail, why, kind, ref, turn_id, t, r["id"]))
+            con.execute("UPDATE relation SET detail=?, why=?, src_kind=?, src_ref=?, turn_id=?, updated_at=?, "
+                        "phrase=COALESCE(?, phrase) WHERE id=?", (detail, why, kind, ref, turn_id, t, phrase, r["id"]))
         return r["id"]
-    cur = con.execute("""INSERT INTO relation(src, dst, rel, detail, why, src_kind, src_ref, turn_id, created_at, updated_at)
-                         VALUES(?,?,?,?,?,?,?,?,?,?)""", (a, b, rel, detail, why, kind, ref, turn_id, t, t))
+    cur = con.execute("""INSERT INTO relation(src, dst, rel, detail, why, src_kind, src_ref, turn_id, created_at, updated_at, phrase)
+                         VALUES(?,?,?,?,?,?,?,?,?,?,?)""", (a, b, rel, detail, why, kind, ref, turn_id, t, t, phrase))
     return cur.lastrowid
 
 
@@ -657,7 +714,8 @@ def merge_map(con, session_id: int, turn_id: int, m: dict) -> int | None:
     for it in (m.get("related") or [])[:6]:
         r = upsert_concept(con, s(it.get("label"), 60))
         link_session(con, session_id, r, turn_id)
-        upsert_relation(con, center, r, "related", s(it.get("rel"), 12), s(it.get("why")), s(it.get("src"), 120), turn_id)
+        upsert_relation(con, center, r, "related", s(it.get("rel"), 12), s(it.get("why")), s(it.get("src"), 120), turn_id,
+                        phrase=clean_link(it.get("link")))
     for lab in (m.get("examples") or [])[:3]:
         e = upsert_concept(con, s(lab, 60))
         upsert_relation(con, e, center, "example", None, None, s(m.get("src"), 120), turn_id)
@@ -811,6 +869,44 @@ def record_text(session_id: int) -> str:
 
 DETAIL_JA = {"auto": "自動", "short": "短く", "long": "詳しく"}
 
+# 話の間合い（v0.5）。「自動」の字数の目安は、先生役に記録を見て決めさせず、機械が決まった規則で決めて数で渡す。
+# v0.4 までの「関係の確かめ＝分かるなら短く」は、確かめに答えた問いが少なく（34問中4問）、ほぼいつも長い側になっていた
+BUDGET = {"word": 120, "talk": 250, "grade": 300, "mid": 500, "deep": 900, "long": 1200}
+# 頼みの形だけを拾う（「TTL を短くすると」「もっと速くする方法」「詳細設計とは」のような、中身の語には当てない）
+_ASK = r"(?:教えて|説明して|話して|聞かせて|知りたい|お願い|ください|して|答えて|まとめて|言うと|いうと)"
+MORE_RE = re.compile(r"(?:詳しく|くわしく|詳細に|網羅的に|深く|深掘りして|丁寧に|じっくり|ちゃんと|もっと詳しく|全部)[^。？?、]{0,12}" + _ASK + r"|もっと詳しく|深掘り")
+NEXT_RE = re.compile(r"^続きを")   # 答えの下の「続きを」（同じ長さで次へ。詳しくを頼んだ数には入れない）
+LESS_RE = re.compile(r"(?:一言で|ひとことで|ざっくり|短く|簡単に|手短に|結論だけ|要するに)[^。？?、]{0,12}" + _ASK + r"|^(?:一言で|ひとことで|ざっくり|結論だけ)")
+LONG_SAID = 200   # これより長い発言は、問いが複数あるとみて目安を上げる
+
+
+def detail_plan(session_id: int, text: str, kind: str, detail: str = "auto", ref: dict | None = None,
+                before_seq: int | None = None) -> dict:
+    """この答えの本文の字数の目安と、その理由（往復の記録 stage_ms の budget に残し、画面にも出す）。"""
+    if detail == "short":
+        return {"chars": BUDGET["word"], "why": "詳しさが「短く」"}
+    if detail == "long":
+        return {"chars": BUDGET["long"], "why": "詳しさが「詳しく」"}
+    t = text or ""
+    if kind in ("answer", "confirm"):   # 判定の返しは、発言の語より先に決める（「要するに〜ですよね」を短くしない）
+        return {"chars": BUDGET["grade"], "why": "判定の返し"}
+    if NEXT_RE.search(t):
+        return {"chars": BUDGET["talk"], "why": "続き"}
+    if LESS_RE.search(t):
+        return {"chars": BUDGET["word"], "why": "短くと頼まれた"}
+    if MORE_RE.search(t):
+        return {"chars": BUDGET["deep"], "why": "詳しくと頼まれた"}
+    if ref:
+        return {"chars": BUDGET["talk"], "why": "見せ直し"}
+    if len(t) > LONG_SAID:
+        return {"chars": BUDGET["mid"], "why": "発言が長い（問いが複数）"}
+    with db.tx() as con:
+        last = db.rows(con, """SELECT final_text FROM turn WHERE session_id=? AND status='done' AND (? IS NULL OR seq<?)
+                               ORDER BY seq DESC LIMIT 3""", (session_id, before_seq, before_seq))
+    if sum(1 for r in last if MORE_RE.search(r["final_text"] or "")) >= 2:
+        return {"chars": BUDGET["mid"], "why": "この話題で続けて詳しくを頼んだ"}
+    return {"chars": BUDGET["talk"], "why": "会話の間合い"}
+
 
 def session_relations(session_id: int, limit: int = 30) -> list[str]:
     """この話題の概念どうしの関係（言い直しの判定で、記録の地図にある関係を名指しさせるため）。"""
@@ -825,11 +921,26 @@ def session_relations(session_id: int, limit: int = 30) -> list[str]:
     return [f"{r['a']}{name[r['rel']]}{r['b']}（rel={r['rel']}{'・' + r['detail'] if r['detail'] else ''}）" for r in rows]
 
 
+def web_pages_text(session_id: int, limit: int = 6) -> str | None:
+    """この話題で Web を調べて作ったページ（先生役の目録は起動したときのものなので、往復ごとに渡す）。"""
+    with db.tx() as con:
+        rows = db.rows(con, """SELECT final_text, stage_ms FROM turn WHERE session_id=? AND via='research' AND status='done'
+                               ORDER BY seq DESC LIMIT ?""", (session_id, limit))
+    lines = [f"{json.loads(r['stage_ms'] or '{}').get('page')}.txt｜問い: {(r['final_text'] or '')[:80]}" for r in rows
+             if json.loads(r["stage_ms"] or "{}").get("page")]
+    if not lines:
+        return None
+    return ("<この話題で Web を調べたページ>\n作業フォルダにあります。本人がこのページの中身を聞いたら Read で読み、〔id｜見出し〕 を付けて答えます。\n"
+            + "\n".join(lines) + "\n</この話題で Web を調べたページ>")
+
+
 def turn_content(session_id: int, text: str, kind: str, via: str, unsure: list[dict],
                  detail: str = "auto", ref: dict | None = None, hedges: list[str] | None = None,
-                 predict: str | None = None, check_id: int | None = None, recap: str | None = None) -> str:
+                 predict: str | None = None, check_id: int | None = None, recap: str | None = None,
+                 plan: dict | None = None) -> str:
     parts = [recap] if recap else []   # 指示が変わって新しい会話で続けるときの、これまでの往復（resume_plan）
-    parts.append(f"<詳しさ>{DETAIL_JA.get(detail, '自動')}</詳しさ>")
+    plan = plan or detail_plan(session_id, text, kind, detail, ref)
+    parts.append(f"<詳しさ>本文の目安 {plan['chars']}字（{plan['why']}。図の塊・たとえの塊・考えの塊は数えない）</詳しさ>")
     if ref:
         parts.append(f"<見せ直しの元>前の答えの図は「{ref.get('name') or 'なし（文だけ）'}」（{ref.get('type') or 'text'}）でした。"
                      f"中身は同じで、違う形で見せ直します。</見せ直しの元>")
@@ -858,5 +969,8 @@ def turn_content(session_id: int, text: str, kind: str, via: str, unsure: list[d
     an = analogy_text(session_id)
     if an:
         parts.append(an)
+    web = web_pages_text(session_id)
+    if web:
+        parts.append(web)
     parts.append(record_text(session_id))
     return "\n".join(parts)

@@ -26,19 +26,44 @@ def _guide():
     return guide
 
 
+def _web_pages() -> tuple[dict, dict]:
+    """Web で調べたページ（v0.5・research.py）を、棚の写しと同じ置き場に <id>.txt で混ぜる。棚の写しを作り直すと
+    棚に無い .txt は消されるので、作り直すたびに書き直す。"""
+    from . import research
+    rows, marked = {}, {}
+    for page in research.all_pages():
+        iid = page.get("id") or ""
+        if not research.load(iid):
+            continue
+        text = research.mirror_text(page)
+        p = config.CORPUS_DIR / f"{iid}.txt"
+        try:
+            if not p.exists() or p.read_text(encoding="utf-8") != text:
+                p.write_text(text, encoding="utf-8")
+        except OSError:
+            continue
+        rows[iid], marked[iid] = research.row(page), text
+    return rows, marked
+
+
 def refresh() -> dict:
-    """写しを作り直す（中身が同じ1枚は書かない）。目録の行数と字数を返す。"""
+    """写しを作り直す（中身が同じ1枚は書かない）。目録の行数と字数を返す。棚が無い PC でも、Web で調べたページは入る。"""
     config.ensure_dirs()
-    if not (config.SHELF_LIB / "shelf-data.json").exists():
-        with _lock:
-            _state.update(rows={}, folded={})
-        return {"pages": 0, "chars": 0, "error": "棚の写しが見つかりません"}
-    g = _guide()
-    rows, marked = g.build_mirror(config.SHELF_LIB, config.CORPUS_DIR)
+    rows, marked, err = {}, {}, None
+    if (config.SHELF_LIB / "shelf-data.json").exists():
+        g = _guide()
+        rows, marked = g.build_mirror(config.SHELF_LIB, config.CORPUS_DIR)
+    else:
+        err = "棚の写しが見つかりません"
+    wrows, wmarked = _web_pages()
+    rows, marked = {**rows, **wrows}, {**marked, **wmarked}
     folded = {iid: fold(t) for iid, t in marked.items()}
     with _lock:
         _state.update(rows=rows, folded=folded)
-    return {"pages": len(rows), "chars": sum(len(t) for t in marked.values())}
+    info = {"pages": len(rows), "chars": sum(len(t) for t in marked.values()), "web": len(wrows)}
+    if err and not wrows:
+        info["error"] = err
+    return info
 
 
 def catalog() -> str:
