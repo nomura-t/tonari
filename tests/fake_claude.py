@@ -7,6 +7,7 @@
 
   TONARI_FAKE_DELAY       先生役が答え始めるまでの秒（既定 1.5。待つあいだの帯を確かめるときは長くする）
   TONARI_FAKE_DELAY_FILE  秒を書いたファイル。あれば、答えるたびに読んで上の秒より先に使う（動かしたまま変えられる）
+  TONARI_FAKE_ANSWER_DIR  答えの写しを置いたフォルダ。発言が「見本 名前」なら、名前.md の中身を答えにする
 """
 from __future__ import annotations
 
@@ -68,6 +69,136 @@ LONG_ANSWER = """作り物の長めの答えです。『受付』は朝に窓口
 
 ほかに、夜間受付の当番と、倉庫が遠いときの取り寄せの話があります。"""
 
+# 発言に「コードで」があるときの答え（v0.7）。読むコード（注釈つき・広い注釈の中に細かい注釈が1つ・結べない注釈が1つ）、空行と複数行の文字列のある素のコード、
+# 差分、文の中のコードの語（1つの段落に ** が2つ）、ますに | のある表、番号つきの箇条書きと入れ子、リンクを1つずつ入れてある
+CODE_ANSWER = """作り物のコードの答えです。`logged` は、関数を受け取って、前後に処理を足した関数を返します。
+
+```tonari-code
+lang: python
+title: 呼び出しの前後に処理を足す
+why: 3つのまとまりに分かれるので
+---
+def logged(fn):
+    def wrapper(*args, **kwargs):
+        \"\"\"前と後に
+        記録を残す\"\"\"
+        print("start", fn.__name__)
+
+        result = fn(*args, **kwargs)
+        return result
+    return wrapper
+
+
+@logged
+def add(a, b):
+    return a + b
+---
+def wrapper(*args, **kwargs):〜return result｜包む関数を作る｜元の関数 `fn` の前後に処理を足す関数を、中で作ります。
+print("start", fn.__name__)｜始まりを残す｜どの関数が呼ばれたかを、先に残します。
+return wrapper｜包んだ関数を返す｜`logged` は `wrapper` そのものを返します。
+@logged｜付ける｜`add = logged(add)` と同じ意味です。
+z = 0｜無い行｜この注釈は、コードに無い字なので画面に出ません。
+```
+
+決め手は、`*args` と `**kwargs` で、どんな引数でもそのまま `fn` に渡すことです。`**kwargs` は名前つきの引数です。
+
+| 書き方 | 意味 |
+|---|---|
+| `a | b` | どちらか |
+| `@logged` | 包む |
+
+1. `logged` を定義する
+2. `@logged` を付ける
+   - 付けた関数が包まれる
+3. 呼ぶ
+
+```js
+const total = items
+  .map((x) => x.price)   // 値段だけ取り出す
+
+  .reduce((a, b) => a + b, 0);
+```
+
+```diff
+-old line
++new line
+ 
+ same
+```
+
+詳しくは https://example.com/docs/decorators を見てください。"""
+
+# 発言に「構成を」があるときの答え（v0.7）。層の決まりのある構成の図。DB から API サーバーへの線が、層に逆らう線で、循環も作る
+ARCH_ANSWER = """作り物の構成の答えです。『API サーバー』が真ん中にいて、画面から頼みを受け、保存する所を使います。
+
+```tonari-arch
+{"name": "構成の図", "why": "使う向きが中身なので", "arrow": "使う", "layered": true, "src": "一般",
+ "groups": [{"id": "ui", "label": "画面の層"}, {"id": "app", "label": "アプリの層"}, {"id": "data", "label": "データの層"}],
+ "nodes": [{"id": "user", "label": "利用者", "kind": "person"}, {"id": "web", "label": "Web 画面", "kind": "ui", "tech": "React", "in": "ui"},
+  {"id": "api", "label": "API サーバー", "kind": "service", "tech": "FastAPI", "in": "app"}, {"id": "job", "label": "ワーカー", "kind": "service", "in": "app"},
+  {"id": "db", "label": "DB", "kind": "store", "tech": "PostgreSQL", "in": "data"}, {"id": "q", "label": "ジョブキュー", "kind": "queue", "in": "data"},
+  {"id": "mail", "label": "メールの外部サービス", "kind": "external"}],
+ "edges": [{"from": "user", "to": "web"}, {"from": "web", "to": "api", "label": "HTTPS"}, {"from": "api", "to": "db", "label": "SQL"},
+  {"from": "api", "to": "q"}, {"from": "job", "to": "q"}, {"from": "job", "to": "db"}, {"from": "job", "to": "mail"},
+  {"from": "db", "to": "api", "label": "通知"}, {"from": "zz", "to": "db"}]}
+```
+
+決め手は、『ワーカー』が『ジョブキュー』を使う側だということです。キューは、誰が取りに来るかを知りません。`DB` は保存する所です。"""
+
+# 発言に「フォルダ」があるときの答え（v0.7）。ファイルの並び
+FILES_ANSWER = """作り物のファイルの並びの答えです。入口は `app/page.tsx` です。
+
+```tonari-tree
+{"name": "ファイルの並び", "why": "入れ子になっているので", "kind": "files", "root": "my-app/",
+ "children": [{"label": "app/", "note": "画面", "children": [{"label": "page.tsx", "note": "入口"}, {"label": "layout.tsx"}]},
+  {"label": "lib/", "children": [{"label": "db.ts", "note": "DB の窓口"}]}, {"label": "package.json"}]}
+```
+
+決め手は、フォルダの名前がそのまま住所になることです。"""
+
+
+# 発言に「関係の図」があるときの答え（v0.7）。状態・型・表の図を1つずつ（描くのは mermaid。ネットが無ければ元の記述のまま出る）
+MERMAID_ANSWER = """作り物の関係の図の答えです。状態・型・表の3つの図を並べます。
+
+```mermaid
+%% name: 状態の図 | why: 状態と移り変わりが中身なので
+stateDiagram-v2
+  [*] --> CLOSED
+  CLOSED --> LISTEN : 待ち受けを始める
+  LISTEN --> SYN_RCVD : SYN を受ける
+  SYN_RCVD --> ESTABLISHED : ACK を受ける
+  ESTABLISHED --> CLOSED : 閉じる
+```
+
+```mermaid
+%% name: 型の図 | why: 実装する関係が中身なので
+classDiagram
+  class Context {
+    -strategy: Strategy
+    +run()
+  }
+  class Strategy {
+    <<interface>>
+    +execute()
+  }
+  Context --> Strategy : 持つ
+  Strategy <|.. FastStrategy : 実装する
+  Strategy <|.. SafeStrategy : 実装する
+```
+
+```mermaid
+%% name: 表の図 | why: 表どうしの関係が中身なので
+erDiagram
+  CUSTOMER ||--o{ ORDERS : "注文する"
+  ORDERS ||--|{ ORDER_ITEMS : "明細を持つ"
+  ORDERS {
+    int id PK "注文の番号"
+    int customer_id FK "誰の注文か"
+  }
+```
+
+決め手は、図の形を中身の形に合わせることです。"""
+
 GRADE_ANSWER = """```tonari-grade
 [{"concept": "受付", "target": "倉庫", "rel": "related", "result": "partial", "evidence": "__EV__"}]
 ```
@@ -89,6 +220,21 @@ RECORD_KAIKEI = """```tonari-map
 ```"""
 
 
+def sample(said: str) -> str | None:
+    """発言が「見本 名前」で、TONARI_FAKE_ANSWER_DIR に 名前.md があれば、その中身を答えにする（本物の先生役が書いた答えの
+    写しを、画面で確かめるための入口。名前に使えるのは英数字と - と _ だけ）。"""
+    d = os.environ.get("TONARI_FAKE_ANSWER_DIR")
+    if not d or not said.startswith("見本 "):
+        return None
+    name = said[3:].strip()
+    if not name or not all(ch.isalnum() and ch.isascii() or ch in "-_" for ch in name):
+        return None
+    try:
+        return open(os.path.join(d, name + ".md"), encoding="utf-8").read()
+    except OSError:
+        return None
+
+
 def tutor() -> None:
     sid = arg("--resume") or f"fake-{os.getpid()}"
     out({"type": "system", "subtype": "init", "session_id": sid})
@@ -101,8 +247,18 @@ def tutor() -> None:
         time.sleep(delay())
         if "種類=answer" in content or "種類=confirm" in content:
             text = GRADE_ANSWER.replace("__EV__", said_of(content)[:12])
+        elif sample(said_of(content)):
+            text = sample(said_of(content))
         elif "長めに" in said_of(content):
             text = LONG_ANSWER
+        elif "コードで" in said_of(content):
+            text = CODE_ANSWER
+        elif "構成を" in said_of(content):
+            text = ARCH_ANSWER
+        elif "フォルダ" in said_of(content):
+            text = FILES_ANSWER
+        elif "関係の図" in said_of(content):
+            text = MERMAID_ANSWER
         else:
             text = TUTOR_ANSWER
         for i in range(0, len(text), 40):

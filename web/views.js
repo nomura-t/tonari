@@ -11,18 +11,37 @@
     decide: "上の問いから順に答えて枝をたどると、結論に着きます。",
     timeline: "左から右へ時間が進みます。帯は続いている期間、縦の線は出来事です。",
     flow: "矢印は進む順です。上の名前は段階のまとまりです。",
+    arch: "破線の枠は、まとまり（層や境界）です。上の段の箱から、下の段の箱へ線が向かいます。",
     parts: "箱が部品で、箱の中の箱はその中にある部品です。矢印は受け渡しで、丸の番号が起きる順です。下の一覧の行か丸を指すと、その矢印と両端の箱が光ります。",
     compare: "上の行が共通点、「決め手」の付いた行がいちばん大きな違いです。",
     overlap: "重なっている所は両方に当てはまり、外側はどちらか一方だけです。",
     calc: "式に数字を入れて、上から一段ずつ計算します。",
     analogy: "左がたとえの側、右が実際の名前、真ん中が両方に共通する働きです。番号と色は本文の同じ語と同じで、指すと相手が光ります。下の欄は、たとえが成り立たない所です。",
     tree: "上が大きな分類で、下へ行くほど細かくなります。",
+    files: "字下げが入れ子です。名前の終わりに / が付くものがフォルダです。",
     map: "上は中心より広い言葉、下は中心の種類、横は取り違えやすい相手、箱の中は中心の部品です。どの行も文として読めます。札を押すと、右の地図がその言葉を中心に描き直されます。",
     mermaid: "箱が物事、線がそのつながりです。",
+    "mer-state": "角の丸い箱が状態、矢印が移り変わりで、矢印に添えた字がきっかけです。黒い丸が始まりです。",
+    "mer-class": "箱がクラスや型で、上から、名前・持っている値・できる操作です。白い三角の矢印は「〜の一種・〜を実装する」、ふつうの矢印は「〜を持つ・使う」です。",
+    "mer-er": "箱が表で、中は列です。線の両端の印は数で、縦の線が1つ、丸が0、三つ又が複数です。",
+    "mer-seq": "上の箱が登場する物、縦の線が時間（下ほど後）、横の矢印がメッセージです。",
   };
   const NUMBERS = { example: "例の数字", unverified: "確かめていない数字" };
   const READ_CASE = { flow: "「例」の札は、上の実例がその段でどうなるかです。",
     parts: "一覧の「例」は、上の実例でそのやりとりに渡る実際の値です。" };
+
+  // 読み方を添える単位（初めて見る形にだけ1行添える）。図の型より細かく分ける所: 読むコード（注釈つきのコードだけ）・
+  // ファイルの並び・関係の図の中の状態の図・型の図・表の図・メッセージの順の図（v0.7。記法がそれぞれ違うため）
+  const MER_KEY = { "stateDiagram-v2": "mer-state", stateDiagram: "mer-state", classDiagram: "mer-class", erDiagram: "mer-er", sequenceDiagram: "mer-seq" };
+  function readKey(v) {
+    if (v.type === "code") return (v.notes || []).length ? "code" : null;
+    if (v.type === "tree") return v.kind === "files" ? "files" : "tree";
+    if (v.type === "mermaid") {
+      const first = String(v.code || "").split("\n").map((l) => l.trim()).find((l) => l && !l.startsWith("%%")) || "";
+      return MER_KEY[first.split(/\s+/)[0]] || "mermaid";
+    }
+    return v.type;
+  }
 
   // 図の札（v0.4）: たとえの持ち主と、判定役が確かめられなかった対応
   function tags(v) {
@@ -32,16 +51,20 @@
   }
 
   function frame(v, body, opts) {
-    const read = opts.firstTime && READ[v.type] ? `<p class="v-read">${READ[v.type]}${v.case ? READ_CASE[v.type] || "" : ""}</p>` : "";
+    const rk = readKey(v);
+    const read = opts.firstTime && READ[rk] ? `<p class="v-read">${READ[rk]}${v.case ? READ_CASE[v.type] || "" : ""}</p>` : "";
+    // 大きく見る（v0.7）: 幅に合わせて縮む図（関係の図・構成の図・しくみの絵）は、別の窓で寄って見られる
+    const zoom = ZOOMABLE.has(v.type) && !opts.noSay ? `<button class="v-zoom" type="button" data-zoom="1" title="この図を大きく見る">大きく見る</button>` : "";
     const num = v.numbers && NUMBERS[v.numbers] ? `<span class="v-num n-${v.numbers}">${NUMBERS[v.numbers]}</span>` : "";
     // B4: 図を自分の言葉に訳す（押すと言い直し＝confirm として話し始める）。たとえの塊は図でないので付けない
     const say = v.type !== "analogy" && !opts.noSay ? `<div class="v-say"><button class="chip say" data-say="1">この図を自分の言葉で言う</button></div>` : "";
     return `<figure class="view v-${v.type}" data-type="${v.type}"${opts.vi != null ? ` data-vi="${opts.vi}"` : ""}>` +
-      `<figcaption class="v-head"><span class="v-name">${esc(v.name)}</span>${v.why ? `<span class="v-why">${esc(v.why)}</span>` : ""}${num}${tags(v)}</figcaption>` +
+      `<figcaption class="v-head"><span class="v-name">${esc(v.name)}</span>${v.why ? `<span class="v-why">${esc(v.why)}</span>` : ""}${num}${tags(v)}${zoom}</figcaption>` +
       read + `<div class="v-body">${body}</div>${say}</figure>`;
   }
   // B3: 図のラベル（本文の『用語』と同じ字なら、指したときに相手を光らせる）。どの図も同じ印 data-lab を付ける
   const lab = (s) => ` data-lab="${esc(s)}"`;
+  const ZOOMABLE = new Set(["mermaid", "arch", "parts"]);
 
   const unsure = (u) => (u ? `<em class="v-unsure">${esc(u)}</em>` : "");
 
@@ -463,7 +486,19 @@
     return `<button class="tree-n d${depth}" data-ask="${esc(label)}"${lab(label)}>${esc(label)}${node.note ? `<small>${esc(node.note)}</small>` : ""}</button>` +
       (kids && depth < 3 ? `<ul>${kids}</ul>` : "");
   }
-  function tree(v) { return `<div class="tree"><ul><li>${treeNode(v, 0)}</li></ul></div>`; }
+  // フォルダとファイルの並び（v0.7）: 等幅の字で、字下げの線つき。名前の終わりの / がフォルダ。押すと、その名前を聞ける
+  function fileNode(node, depth) {
+    const label = String(node.root || node.label || "");
+    const kids = (node.children || []).slice(0, 12);
+    const dir = label.endsWith("/") || kids.length > 0;
+    return `<li><button class="ft-n${dir ? " ft-dir" : ""}" data-ask="${esc(label)}"${lab(label)}><span class="ft-name">${esc(label)}</span>${node.note ? `<small>${esc(node.note)}</small>` : ""}</button>` +
+      (kids.length && depth < 4 ? `<ul>${kids.map((k) => fileNode(k, depth + 1)).join("")}</ul>` : "") + `</li>`;
+  }
+  function tree(v) {
+    if (v.kind === "files") return `<div class="ft"><ul>${fileNode(v, 0)}</ul></div>`;
+    return `<div class="tree"><ul><li>${treeNode(v, 0)}</li></ul></div>`;
+  }
+  const arch = (v) => window.TonariArch.render(v);
 
   // ── 位置の図 ──
   function map(v, opts) {
@@ -473,13 +508,14 @@
 
   function mermaid(v) { return `<pre class="mermaid-src">${esc(v.code)}</pre>`; }
 
-  const R = { decide, timeline, flow, parts, compare, overlap, calc, analogy, tree, map, mermaid };
+  const R = { decide, timeline, flow, parts, arch, compare, overlap, calc, analogy, tree, map, mermaid };
 
   function render(v, opts = {}) {
+    if (v.type === "code") { try { return window.TonariCode.figure(v, opts); } catch (e) { return ""; } }
     const f = R[v.type];
     if (!f) return "";
     try { return frame(v, f(v, opts), opts); } catch (e) { return ""; }
   }
 
-  window.TonariViews = { render, READ };
+  window.TonariViews = { render, READ, readKey };
 })();

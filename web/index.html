@@ -143,6 +143,20 @@
   <header class="set-head"><h2 id="pageTitle">Web で調べたページ</h2><button class="ghost small" id="closePage">閉じる</button></header>
   <div id="pageBody"></div>
 </dialog>
+<dialog id="figZoom" aria-labelledby="fzTitle">
+  <header class="at-bar">
+    <h2 id="fzTitle">図</h2>
+    <span class="tiny" id="fzHint">つかんで動かす・2本指で送る／つまむか、⌘（Ctrl）を押しながら回すと寄る・引く</span>
+    <div class="at-zoom" role="group" aria-label="図の大きさ">
+      <button id="fzFit" class="ghost small" title="全体を窓に収める（0）">全体</button>
+      <button id="fzOut" class="ghost small" aria-label="引く" title="引く（-）">−</button>
+      <span id="fzNow" class="tiny mono">100%</span>
+      <button id="fzIn" class="ghost small" aria-label="寄る" title="寄る（+）">＋</button>
+    </div>
+    <button id="fzClose" class="ghost small">閉じる<kbd>Esc</kbd></button>
+  </header>
+  <div id="fzBody" class="fz-body"></div>
+</dialog>
 <dialog id="atlas" aria-labelledby="atTitle">
   <header class="at-bar">
     <h2 id="atTitle">全体の地図</h2>
@@ -170,7 +184,10 @@
 <div id="toast" role="status"></div>
 <script src="/web/md.js"></script>
 <script src="/web/map.js"></script>
+<script src="/web/code.js"></script>
+<script src="/web/arch.js"></script>
 <script src="/web/views.js"></script>
+<script src="/web/zoom.js"></script>
 <script src="/web/atlas.js"></script>
 <script src="/web/app.js"></script>
 <script>document.getElementById("emptyStart").addEventListener("click", () => document.getElementById("newSession").click());</script>

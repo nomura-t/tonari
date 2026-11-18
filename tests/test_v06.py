@@ -447,7 +447,8 @@ def test_alt_is_attached_to_the_turn_and_a_pick_is_marked(monkeypatch):
 
 
 def test_changing_the_tutor_instructions_is_a_deliberate_step():
-    # 先生役の指示（tutor.SYSTEM）の印。v0.6 の段1（主な経路の壁を取る）は指示を変えていない（v0.5 と同じ印）。
-    # 指示を変えると、いまある話題はすべて次の往復で新しい会話に替わる（DESIGN 15.11）。変えるときは、間合いと形の測り
-    # （tests/eval_tempo.py）を流し直してから、この印を新しい値に書き換える
-    assert tutor.prompt_sig() == "7bfeab1c25820cc6"
+    # 先生役の指示（tutor.SYSTEM）の印。v0.6 は指示を変えていない（v0.5 と同じ印 7bfeab1c25820cc6）。v0.7（2026-11-17・DESIGN 18章）で、
+    # コードの決まりと、構成の図・状態と型と表の図・ファイルの並びを足して変えた。
+    # 指示を変えると、いまある話題はすべて次の往復で新しい会話に替わる（DESIGN 15.11）。変えるときは、形とコードの測り
+    # （tests/eval_code.py。前からの14問の形が変わらないかも見る）を流し直してから、この印を新しい値に書き換える
+    assert tutor.prompt_sig() == "33bcd86d6ce8eb41"

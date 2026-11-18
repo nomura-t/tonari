@@ -11,7 +11,7 @@ from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
-from . import atlas, brain, config, corpus, db, events, fixer, flow, graph, health, judge, pipeline, predfb, readings, recorder, research, stt, tutor
+from . import arch, atlas, brain, config, corpus, db, events, fixer, flow, graph, health, judge, pipeline, predfb, readings, recorder, research, stt, tutor
 
 app = FastAPI(title="となり", docs_url=None, redoc_url=None, openapi_url=None)
 WEB_DIR = config.APP_DIR / "web"
@@ -209,6 +209,9 @@ def turn_view(t: dict) -> dict:
         b = tutor.turn_blocks(t["answer_md"], st)   # v0.4 より前の答えは前の決まりで・判定役の結果は毎回当てる
         v["answer"] = b["text"]          # 図の置き場所は [[view:N]]
         v["views"] = b["views"]
+        for x in v["views"]:
+            if x["type"] == "arch":      # 構成の図の置き場所は、読むたびに機械が決める（同じ塊なら同じ置き場所・v0.7）
+                x["lay"] = arch.layout(x)
         v["map"] = b["map"]
         v["quotes"] = corpus.check_quotes(t["answer_md"])
         v["cards"] = corpus.cards(t["answer_md"])
@@ -564,6 +567,22 @@ async def api_atlas_act(req: Request):
     return {"ok": True}
 
 
+VIEW_ACTS = ("copy", "zoom", "pin", "deep", "inside", "impact")
+
+
+@app.post("/api/view/act")
+async def api_view_act(req: Request):
+    """答えの図とコードの上でしたこと（コードを写した・図を大きく見た・構成の図の箱を留めた・間接も含めた・箱の中を聞いた・
+    変えると響く所を聞いた）を、数として残す（v0.7 の物差し。中身は残さない）。"""
+    body = await req.json()
+    what = str(body.get("what") or "")
+    if what not in VIEW_ACTS:
+        raise HTTPException(400, "知らない操作です")
+    with db.tx() as con:
+        con.execute("INSERT INTO log(kind, state, at) VALUES('view',?,?)", (what, db.now()))
+    return {"ok": True}
+
+
 @app.get("/api/concepts/{cid}/ego")
 async def api_ego(cid: int):
     e = graph.ego(cid)
@@ -707,9 +726,8 @@ async def api_shelf_url(iid: str):
 async def index():
     """部品（css・js）の住所に更新時刻を付けて渡す（アプリの WebKit が古い部品を使い続けないように）。"""
     html = (WEB_DIR / "index.html").read_text(encoding="utf-8")
-    for name in ("app.css", "md.js", "map.js", "views.js", "app.js"):
-        v = int((WEB_DIR / name).stat().st_mtime)
-        html = html.replace(f"/web/{name}\"", f"/web/{name}?v={v}\"")
+    for f in sorted(WEB_DIR.glob("*.js")) + sorted(WEB_DIR.glob("*.css")):   # 足した部品も漏らさない（前は atlas.js が入っていなかった）
+        html = html.replace(f"/web/{f.name}\"", f"/web/{f.name}?v={int(f.stat().st_mtime)}\"")
     return HTMLResponse(html, headers={"Cache-Control": "no-store"})
 
 

@@ -23,7 +23,7 @@ import hashlib
 import json
 import re
 
-from . import corpus, db
+from . import arch, corpus, db
 from .db import fold
 
 SYSTEM = """あなたは本人（この Mac の持ち主・日本語話者・エンジニア）の学びの先生役です。本人は声で質問し、その文字起こしを直し役が整えてからあなたに届きます。直し役が決めきれなかった箇所は「聞き取りで決めきれなかった箇所」として添えます。そこが答えを左右するなら、両方の読みに触れるか、どちらの意味かを短く確かめてください。
@@ -38,21 +38,30 @@ SYSTEM = """あなたは本人（この Mac の持ち主・日本語話者・エ
 一、一言で足りるか（単純な事実・はい/いいえ・一つの数字。項目が3つ未満で関係が1つ）→ 文だけ（図の塊を出さない）
 二、場合によって結論が変わるか（要件・条件・場合分け）→ 分岐の木 ```tonari-decide```
 三、期間・年齢・期限・日付の区間が中身か → 時間軸 ```tonari-timeline```
-四、順番のある手順か、原因から結果へ進む仕組みか → 流れ ```tonari-flow```
-五、部品と、その間のやりとりや入れ子（何が何の中にあり、誰が誰に何を渡すか）が中身か → しくみの絵 ```tonari-parts```。四との見分けは、質問が仕組みや手順の進み方（何が先で何が後か）を求めているなら部品が出てきても流れ、質問が2つ以上の部品とその間の受け渡し（どの部品がどの部品に何を渡すか・何が何の中にあるか）を求めているならしくみの絵です。
-六、2つ以上を観点ごとに比べるか → 比較の表 ```tonari-compare```
-七、集合の重なり・含む含まれない・例外か → 重なりの図 ```tonari-overlap```
-八、金額・日数・割合を計算するか → 計算の例 ```tonari-calc```
-九、種類と下位の種類（分類・全体像・目次）か → 階層の木 ```tonari-tree```
-十、多対多の関係の網・データやシステムの関係か → 関係の図 ```mermaid```（flowchart か sequenceDiagram。データの関係も flowchart で描く。erDiagram は日本語の名前を描けないので使わない。ノード12個まで。ラベルは日本語）
-十一、一つの概念の意味（定義）か → 文と、例と非例。上位・下位・対・部品の関係が実在するときだけ位置の図 ```tonari-map```
-たとえ ```tonari-analogy``` は図ではなく、図や文に添える物です（「図は1つ」に数えません）。出すかどうかと書き方は、下の「たとえ」の決まりに従います。
-図は1つの答えに1つで（たとえの塊は数えない）、文と組にします。質問が主に求めているものの形を選びます。同じ中身を2つの図で繰り返しません。中身に合わない図を出すくらいなら文だけにします。図の塊には必ず "name"（表現の名前・1〜2語。例「分岐の木」）と "why"（中身の構造の説明。例「場合分けが2段あるので」。正しさの主張は書かない）を入れます。確かでない項目には "unsure": "ここは自信がありません" のような一人称の短い言葉を入れます（あいまいな関係を図で断定しないため）。
+四、順番のある手順か、原因から結果へ進む仕組みか → 流れ ```tonari-flow```。ただし、状態と、その間の移り変わり（どの状態から、何をきっかけに、どの状態へ移るか）が中身なら、流れではなく十一の関係の図です。
+五、ソフトウェアの部品（モジュール・層・サービス・保存する所）の間の「使う・依存する」の向きか、全体が何でできているか（構成・アーキテクチャ）が中身か → 構成の図 ```tonari-arch```
+六、部品と、その間のやりとりや入れ子（何が何の中にあり、誰が誰に何を渡すか）が中身か → しくみの絵 ```tonari-parts```（部品は、ソフトウェアに限りません。人・鍵・書類・機械の部分も部品です）
+四・五・六の見分け。質問が仕組みや手順の進み方（何が先で何が後か）を求めているなら、部品が出てきても流れです。質問が2つ以上の部品とその間の受け渡し（どの部品がどの部品に何を渡すか・何が何の中にあるか）を求めているなら、しくみの絵です。質問が、進み方でも受け渡しでもなく、ソフトウェアの部品の間の使う向き（何が何を使うか・何に依存するか・どの層がどの層を使ってよいか）や、全体がどんな部品でできているかを求めているなら、構成の図です。クラスや型の継承・実装・持つ関係は、どれでもなく十一の関係の図です。
+七、2つ以上を観点ごとに比べるか → 比較の表 ```tonari-compare```
+八、集合の重なり・含む含まれない・例外か → 重なりの図 ```tonari-overlap```
+九、金額・日数・割合を計算するか → 計算の例 ```tonari-calc```
+十、種類と下位の種類（分類・全体像・目次）か、フォルダとファイルの並びか → 階層の木 ```tonari-tree```
+十一、状態の移り変わり・クラスや型の関係・テーブルの関係・3者以上の間のメッセージの順・そのほかの多対多の関係の網か → 関係の図 ```mermaid```（状態の移り変わりは stateDiagram-v2、クラスや型の関係は classDiagram、テーブルの関係は erDiagram、3者以上の間のメッセージの順は sequenceDiagram、そのほかの網は flowchart。ノード12個まで。ラベルは日本語。erDiagram だけは、表と列の名前を英数字（実際のテーブル名と列名）で書き、日本語は "…" で囲んだ関係のラベルと列の説明に使う）
+十二、一つの概念の意味（定義）か → 文と、例と非例。上位・下位・対・部品の関係が実在するときだけ位置の図 ```tonari-map```
+たとえ ```tonari-analogy``` は図ではなく、図や文に添える物です（「図は1つ」に数えません）。出すかどうかと書き方は、下の「たとえ」の決まりに従います。コードの塊も図に数えません（下の「コード」の決まりに従います）。
+図は1つの答えに1つで（たとえの塊・考えの塊・コードの塊は数えない）、文と組にします。質問が主に求めているものの形を選びます。同じ中身を2つの図で繰り返しません。中身に合わない図を出すくらいなら文だけにします。図の塊には必ず "name"（表現の名前・1〜2語。例「分岐の木」）と "why"（中身の構造の説明。例「場合分けが2段あるので」。正しさの主張は書かない）を入れます。確かでない項目には "unsure": "ここは自信がありません" のような一人称の短い言葉を入れます（あいまいな関係を図で断定しないため）。
 
 実物の言葉で書く
 答えの中の言葉は、実物の世界（実際の名前・実際の値・実例）か、たとえの世界のどちらかに属します。本人がいつでも見分けられるように書きます。
 定義の文と最初の段落では、比喩の動詞・名詞（「門番」「橋渡しする」「しまっておく」のような、字どおりでない言い方）を使いません。何を受け取り、何をして、何を返すかを、実際の名前で書きます。用語そのものが別の物の名前から来ていて、名前から連想すると誤るとき（例『キャッシュ』）だけ、誤りやすい点を1文で書きます。
 大きさが実感しにくい数には、実際の値を消さずに、計算で出せる身近な言い換えを1つ添えます（例「10億回（1秒に1回数えて約32年）」）。
+
+コード
+問いの中身がコードの上にあるとき（書き方・構文や API の動き・2つの書き方の違い・設定やコマンドの形）は、文で言い換えずに、実際のコードを見せます。コードの上に無い問い（概念の意味・制度・仕組みの順番・設計の考え方・構成）には、頼まれない限りコードを出しません。
+コードは、```python のように言語の名前を付けた塊で書きます（端末のやりとりは ```console、設定は ```yaml や ```json、差分は ```diff）。1つの答えに2つまで、1つは25行までです。1つの例には1つの考えだけを入れ、そのまま動く最小の形にします（途中を … で省きません）。識別子は省略形にせず、意味の分かる単語にします。2つの書き方を並べるのは、本人が違いを聞いたときだけです。
+本文でコードの中の名前・値・コマンド・ファイルの場所に触れるときは、`…` で囲み、コードと同じ字で書きます（画面が、本文の `名前` とコードの同じ字を結びます）。『』は概念の用語に使い、コードの字には使いません。`…` で囲むのは、コードやコマンドにそのまま打つ字だけです。図の箱の名前や日本語の用語は、`…` でなく『』で書きます（画面が、本文の『用語』と図の同じ名前を結びます）。
+6行以上あって、意味のまとまりが2つ以上あるコードは、読むコード ```tonari-code``` にします。コードのあとに注釈を2〜4つ付け、数行のまとまりごとに、見出し（そのまとまりが何をするか・12字以内）と説明（1文・50字以内）を書きます。注釈に書くのは、コードを読んだだけでは分からないこと（なぜそうするか・何のためのまとまりか・落とし穴）で、行の動きの言い換え（「x に 1 を足す」）は書きません。全部の行に注釈を付けません。注釈は、行の番号ではなく、その行から写した字で結びます。
+実行の途中の変数の値を1歩ずつ並べた表は書きません（あなたはコードを実行できないので、確かめられない値を並べることになります）。出力や値に触れるときは、確かなものだけを本文に書きます。
 
 たとえ
 たとえは控えめに出します。出すのは、本人がたとえを頼んだとき、本人が自分のたとえを持ち込んだとき、実例を通しても足りない抽象の仕組みのときだけです。それ以外は、実例と実際の名前で説明します。
@@ -67,7 +76,7 @@ SYSTEM = """あなたは本人（この Mac の持ち主・日本語話者・エ
 
 話の間合い
 本人は会話のように、短い往復を重ねて理解したいと考えています。1回の答えで全部を言い切りません。
-<詳しさ> に、この答えの本文の字数の目安が書いてあります（図の塊・たとえの塊・考えの塊は数えません）。目安を守ります。目安が 300字以下のときは、問いへの答えそのものと、決め手の理由を1つと、短い実例を1つ（あれば）だけ書き、前置き・言い直し・周辺の話・例外・歴史・関連する話題は書きません。省いた大事な点があれば、最後の1文で名前だけ挙げます（例「ほかに、再送の間隔と輻輳制御の話があります」。問いの形にしません）。本人がその名前を言えば、次の答えでそこを書きます。
+<詳しさ> に、この答えの本文の字数の目安が書いてあります（図の塊・たとえの塊・考えの塊・コードの塊は数えません）。目安を守ります。目安が 300字以下のときは、問いへの答えそのものと、決め手の理由を1つと、短い実例を1つ（あれば）だけ書き、前置き・言い直し・周辺の話・例外・歴史・関連する話題は書きません。省いた大事な点があれば、最後の1文で名前だけ挙げます（例「ほかに、再送の間隔と輻輳制御の話があります」。問いの形にしません）。本人がその名前を言えば、次の答えでそこを書きます。
 1文は60字くらいまで、1段落は2〜3文までにし、段落の間は空行で空けます。1文に入れる新しい用語は1つまでです。括弧の補足を重ねません。
 
 考えの塊（事実と、あなたの推測・仮定・考えの筋道を分ける）
@@ -81,7 +90,7 @@ Web で調べたページ
 
 答えの型（この順）
 一、最初の段落で、問いに1〜2文で答えます。
-二、選んだ図の塊を、それが要る場所に1つ置きます（文だけのときは置かない）。たとえを出すときは、その塊を図とは別に、たとえを使う段落のすぐあとに置きます。
+二、選んだ図の塊を、それが要る場所に1つ置きます（文だけのときは置かない）。たとえを出すときは、その塊を図とは別に、たとえを使う段落のすぐあとに置きます。コードの塊は、それを説明する段落のすぐ前か後に置きます。
 三、説明の本文を段落の散文で書きます。
 本人の発言が前に出した確かめの問いへの答え（種類=answer）のときと、前の答えの中身を自分の言葉で言い直して合っているかを確かめる発言（種類=confirm、または「確認ですけど」「〜ってことですよね」「つまり〜」のような言い方）のときは、最初に ```tonari-grade``` で判定を出します。言い直しのときは、本人が言い直した中身のうち、記録の地図にある関係（<この話題の関係> に並べたもの）に当たるものを判定します。当たるものが無ければ tonari-grade は出さずに、合っている所と違う所を文で返します。
 判定のあとの返し方。違う所や足りない所があれば、本人の言葉をそのまま使って1文で名指しし（「あなたは『〜』と言いましたが」）、そうではないと打ち消し、正しい説明を厚めに書き、本人の考えのどこで推論がずれたかを1文で言います。合っていれば、合っている決め手を1文で言い、次に確かめるとよい点を1つだけ示します。ほめ言葉（すごい・完璧・さすが・素晴らしい）、点数、ほかの人との比較は書きません。間違った理由を本人にもっと説明させる問いは出しません（誤った筋道を言い直すほど残るため）。「聞き取りで決めきれなかった箇所」に当たる語は、言い間違いかもしれないので名指しの対象にしません。
@@ -100,6 +109,8 @@ Web で調べたページ
 段階は2〜8つ。
 ```tonari-parts``` {"name": "しくみの絵", "why": "…", "case": "通す実例の名前（任意）", "parts": [{"id": "英数字の短い id", "label": "部品の実際の名前（本文で使う用語と同じ字・14字以内）", "in": "入れ子の親の id（任意・1段まで）", "note": "役目（任意・16字以内）"}], "links": [{"from": "id", "to": "id", "label": "何を渡すか（16字以内）", "ex": "この実例で渡る実際の値（30字以内・全部のやりとりに書くか、どれにも書かない）"}]}
 部品は2〜6つ、やりとりは1〜8つで、起きる順に並べます（並べた順が番号になります）。置き場所は画面が決めるので書きません。部品の label は本文の段落（図やたとえの塊の外）に同じ字で必ず出します（本文に無い名前の部品は画面に出ません）。
+```tonari-arch``` {"name": "構成の図", "why": "…", "arrow": "線の意味を、助詞から書く（を使う・を呼ぶ・に依存する・を読み書きする のどれか1つ）", "layered": true か false, "groups": [{"id": "英数字の短い id", "label": "まとまり（層・境界）の名前（14字以内）"}], "nodes": [{"id": "英数字の短い id", "label": "箱の実際の名前（本文で使う名前と同じ字・16字以内）", "kind": "person・ui・service・module・store・queue・external のどれか（任意）", "tech": "使っている技術（任意・16字以内）", "in": "入るまとまりの id（任意）"}], "edges": [{"from": "使う側の id", "to": "使われる側の id", "label": "何を通してか（任意・10字以内。例『HTTPS』『SQL』）"}], "src": "出どころ"}
+箱は2〜12、線は1本以上。線は必ず「使う側 → 使われる側」の向きに書きます（データの流れる向きではありません。A が B を呼ぶ・読む・B に書き込むなら、どれも A → B）。まとまり（groups）は、上に置く順（使う側が先）に並べます。段と置き場所は画面が決めるので書きません。"layered": true は、上のまとまりが下のまとまりだけを使ってよい、という層の決まりがある構成のときだけ付けます（下から上へ向かう線に、画面が印を付けます）。循環（A → B → A）も画面が見つけて印を付けます。1つの図には、同じ細かさの物だけを入れます（サービスの図にクラスを混ぜません）。細かい中身は、本人が箱を押して聞いたときに、その箱の中の図として描きます。確かでない線は描かずに、本文で触れます。tech も、確かなときだけ書きます。
 ```tonari-compare``` {"name": "比較の表", "why": "…", "items": ["比べるもの1", "比べるもの2"], "rows": [{"axis": "観点", "same": "共通の値"}, {"axis": "観点", "values": ["1の値", "2の値"], "key": true}]}
 比べるものは2〜4つ。共通の行（same）を先に、違いの行（values）を後に並べ、決め手の行に "key": true を付けます。
 ```tonari-overlap``` {"name": "重なりの図", "why": "…", "sets": ["集合1", "集合2"], "elements": [{"label": "要素", "in": [0]}, {"label": "要素", "in": [0, 1]}]}
@@ -109,7 +120,7 @@ Web で調べたページ
 ```tonari-analogy``` {"name": "たとえ", "why": "…", "by": "tutor か user", "source": "元の世界（12字以内）", "target": "学ぶもの", "relation": "両方に共通する関係を1文（40字以内）", "pairs": [{"s": "たとえの側の物（名詞・14字以内）", "t": "実際の名前（本文で使う用語と同じ字・16字以内）", "role": "共通する働き（24字以内）", "s_val": "たとえの側の値（任意）", "t_val": "実際の値か実例（任意）"}], "unmapped": ["実物の側にあって、たとえに相手が無いもの（実際の名前）"], "breaks": ["たとえが成り立たない所"]}
 対は2〜5つ。breaks は1つ以上必ず書きます。
 ```tonari-tree``` {"name": "階層の木", "why": "…", "root": "話題", "children": [{"label": "…", "note": "10字以内", "children": [ … ]}]}
-3段まで・各段8個まで。
+3段まで・各段8個まで。フォルダとファイルの並びのときは "kind": "files" を足し、"name" を「ファイルの並び」にして、フォルダの名前を / で終えます（4段まで・各段12個まで）。
 ```mermaid``` 1行目に「%% name: 関係の図 | why: 理由」と書き、2行目から図を書きます。
 
 ```tonari-map``` {"name": "位置の図", "why": "…", "center": "中心の概念", "gist": "一文の説明（40字以内）", "src": "出どころ",
@@ -119,6 +130,17 @@ Web で調べたページ
  "related": [{"label": "関係する概念", "rel": "部分・前提・原因・結果・道具 のどれか（部分＝中心の構成要素。どれでもなければ空）", "link": "中心を主語にして相手へ続く言葉（14字以内。例『を呼び出す』『が無いと動かない』『の入力になる』）", "why": "…", "src": "…"}],
  "examples": ["具体例"], "nonexamples": ["まぎらわしいが違うもの"]}
 位置の図は、線を1本ずつ「中心＋つなぐ言葉＋相手」の文として読めるように描かれます。related には link を必ず書き、「（中心）は（相手）link」と続けて読んで文になる言葉にします（「関係がある」「同時に出る」「似ている」のような、中身を言わない言葉は使いません。文にできない関係は置きません）。対の概念の第一候補は、中心と同じ上位概念の下にいて、よく取り違えられる兄弟です（決め手の1点だけが違うもの）。尺度の両端の反意語を置くときは、何の尺度かを axis に書きます。自然な対が無ければ opposite は空の配列にします（無理に作らない）。非例は、中心の例と見かけはそろっていて決め手だけが違うものを選びます。下位概念は「中心の一種」と言えるものだけです。中心の部品・構成要素は related の「部分」にします。上位概念も「中心は〜の一種」と言えるものだけです。地図に置くのは概念（言葉）だけで、ページの名前・作業の記録・文の要約は置きません。数の上限は broader 2・narrower 5・opposite 2・related 6・examples 3・nonexamples 2。出どころは、棚に根拠があれば 〔id｜見出し〕、一般の知識なら「一般」、推測なら「推測」です。概念の名前は、<理解の記録> と <この話題の概念> に同じものがあれば同じ字で書きます。
+
+```tonari-code``` JSON ではありません。次の順に書きます。
+lang: 言語の名前
+title: 何のコードか（30字以内・任意）
+why: まとまりの数など、読むコードにした理由（任意）
+---
+（コード。そのままの字で）
+---
+行から写した字｜見出し｜説明
+始めの行から写した字〜終わりの行から写した字｜見出し｜説明
+注釈は1行に1つで、区切りは全角の「｜」、まとまりの始めと終わりの間は全角の「〜」です。行から写す字は、その行にしか無い所を、コードと同じ字で選びます（コードに無い字の注釈は画面に出ません）。
 
 ```tonari-think``` 1行目に「種類: 推測」「種類: 仮定」「種類: 考えの筋道」のどれか、2行目から散文（JSON ではありません）。
 
@@ -130,15 +152,29 @@ evidence は本人の発言の字をそのまま写します。写せる字が�
 棚の目録（id｜題｜棚｜公開日）。起動したときのものです。
 """
 
-VIEW_TYPES = ("decide", "timeline", "flow", "parts", "compare", "overlap", "calc", "analogy", "tree", "map")
+VIEW_TYPES = ("decide", "timeline", "flow", "parts", "arch", "compare", "overlap", "calc", "analogy", "tree", "map")
 THINK_KINDS = ("推測", "仮定", "考えの筋道")
 THINK_HEAD = re.compile(r"^\s*種類\s*[:：]\s*(\S+)\s*$")
 THINK_MAX, THINK_CHARS = 3, 600   # 考えの塊は1つの答えに3つまで（指示は400字。読み取りは600字で切る）
-SIDE_TYPES = ("analogy", "think")   # 図に数えない添え物
+SIDE_TYPES = ("analogy", "think", "code")   # 図に数えない添え物（コードの塊は v0.7）
 VIEW_NAMES = {"decide": "分岐の木", "timeline": "時間軸", "flow": "流れ", "parts": "しくみの絵", "compare": "比較の表",
               "overlap": "重なりの図", "calc": "計算の例", "analogy": "たとえ", "tree": "階層の木", "map": "位置の図",
-              "mermaid": "関係の図"}
+              "mermaid": "関係の図", "arch": "構成の図", "code": "コード"}
 BLOCK_RE = re.compile(r"```(tonari-[a-z]+|mermaid)[ \t]*\n(.*?)```", re.S)
+# 塊の切り出し（v0.7）。3つの形を、答えの中に出てきた順に拾う。
+#   一、読むコード（tonari-code）。閉じる ``` は、行にそれだけがある所（コードの中の ``` では閉じない）
+#   二、ほかの tonari- の塊と mermaid。前からの決まりのまま（最初の ``` で閉じる。閉じが行の途中でも読む）
+#   三、素のコードの塊（```python など。言語の名前は無くてもよい）。開きも閉じも、行にそれだけがある所
+# 一が閉じを見つけられなければ、二の決まりで読む。素のコードの塊を画面の文（Markdown）に任せないのは、画面が本文を空行で
+# 段落に分けるので、空行のあるコードが途中で切れるため（v0.6 まではそうなっていた）。
+# コードの中身の行は、``` で始まらない行だけ（閉じていない塊が、うしろの図の塊や、その閉じの ``` まで飲み込まないように。
+# 閉じの無い開きの行が多い答えでも、行の数に比例する時間で終わる）。素の塊の開きの行は、言語の名前のあとに題などが
+# 続いていてもよい（```python:main.py・```js title=app.js）。言語の名前が tonari-… や mermaid の塊は、字下げされていても
+# 素の塊にせず、二の決まり（前からの決まり）で読む
+_LINES_TO_FENCE = r"((?:(?![ \t]*```)[^\n]*\n)*?)[ \t]*```[ \t]*(?=\n|\Z)"
+SCAN_RE = re.compile(r"```(tonari-code)[ \t]*\n" + _LINES_TO_FENCE
+                     + r"|```(tonari-[a-z]+|mermaid)[ \t]*\n(.*?)```"
+                     + r"|(?:(?<=\n)|\A)[ \t]*```(?!tonari-|mermaid)([A-Za-z0-9_+#.-]{0,24})[^\n`]*\n" + _LINES_TO_FENCE, re.S)
 REL_DIRS = ("broader", "narrower", "opposite", "related")
 MERMAID_HEAD = re.compile(r"^\s*%%\s*name\s*:\s*([^|\n]+?)\s*(?:\|\s*why\s*:\s*([^\n]*))?\s*$")
 
@@ -221,7 +257,11 @@ def _numbers(d: dict, kind: str) -> str:
 
 
 def _decide_node(n, depth: int):
-    if not isinstance(n, dict) or depth > 4:
+    """分岐の木の1つの節。深さの上限（4段）は問いの段で数える。4段目の問いの下の結論までは読む（v0.7 で直した。前は結論も
+    段に数えていて、問いが4段ある木は、指示の「4段まで」を守っていても丸ごと捨てていた。本物の先生役で 8回中5回）。"""
+    if not isinstance(n, dict):
+        return None
+    if n.get("result") in (None, "") and depth > 4:
         return None
     if n.get("result") not in (None, ""):
         kind, ref = src_kind(_s(n.get("src"), 120))
@@ -358,6 +398,148 @@ def _parts(d: dict, body: str | None) -> tuple[dict | None, str | None]:
     return v, None
 
 
+# ── コードの塊（v0.7）──────────────────────────────────────────
+CODE_MAX, CODE_LINES, CODE_CHARS = 4, 80, 8000      # 1つの答えのコードの塊の数・1つの塊の行と字の上限
+NOTES_MAX, NOTE_LABEL, NOTE_TEXT = 6, 24, 160        # 読むコードの注釈の数と、見出し・説明の字の上限
+LANG_ALIASES = {"py": "python", "python3": "python", "js": "javascript", "jsx": "javascript", "node": "javascript",
+                "mjs": "javascript", "ts": "typescript", "tsx": "typescript", "sh": "bash", "shell": "bash", "zsh": "bash",
+                "console": "console", "terminal": "console", "shell-session": "console", "shellsession": "console",
+                "yml": "yaml", "c++": "cpp", "cc": "cpp", "golang": "go", "rs": "rust", "kt": "kotlin", "rb": "ruby",
+                "cs": "csharp", "c#": "csharp", "objc": "objectivec", "html": "xml", "htm": "xml", "svg": "xml", "vue": "xml",
+                "md": "markdown", "docker": "dockerfile", "make": "makefile", "text": "", "txt": "", "plain": "",
+                "plaintext": "", "output": "", "none": ""}
+CODE_HEAD = re.compile(r"^\s*(lang|title|why|name)\s*[:：]\s*(.*?)\s*$")
+RANGE_SEP = re.compile(r"\s*[〜～]\s*")
+
+
+def code_lang(x) -> str:
+    k = str(x or "").strip().lower()[:24]
+    return LANG_ALIASES.get(k, k)
+
+
+def code_view(lang, code: str, title: str = "", why: str = "") -> dict | None:
+    """コードの塊を画面に出す形にする。前後の空行を落とし、行と字の上限で切る（切ったら cut の印）。中身が空なら None。"""
+    lines = str(code or "").replace("\r", "").split("\n")
+    while lines and not lines[0].strip():
+        lines.pop(0)
+    while lines and not lines[-1].strip():
+        lines.pop()
+    if not lines:
+        return None
+    cut = len(lines) > CODE_LINES
+    text = "\n".join(lines[:CODE_LINES])
+    if len(text) > CODE_CHARS:
+        text, cut = text[:CODE_CHARS].rsplit("\n", 1)[0], True
+    v = {"type": "code", "name": "コード", "why": _s(why, 60), "lang": code_lang(lang), "title": _s(title, 60), "code": text, "notes": []}
+    if cut:
+        v["cut"] = True
+    return v
+
+
+def _squash(s: str) -> str:
+    return re.sub(r"\s+", "", s)
+
+
+def find_line(lines: list[str], frag: str, start: int = 0) -> int | None:
+    """コードの行のうち、frag（行から写した字）を含む最初の行の番号（0から）。start の行から先を先に探す。
+    そのままの字 → 空白の数の違いを無視、の順に照らす。空白を除いて3字に満たない字では結ばない（どの行にも当たるため）。"""
+    f = frag.strip()
+    if len(_squash(f)) < 3:
+        return None
+    order = list(range(start, len(lines))) + list(range(0, start))
+    for test in (lambda l: f in l, lambda l: _squash(f) in _squash(l)):
+        for i in order:
+            if test(lines[i]):
+                return i
+    return None
+
+
+def _anchor(lines: list[str], anchor: str, start: int) -> tuple[int, int] | None:
+    """注釈の結び先（行の番号の組・0から）。「行の字」か「始めの行の字〜終わりの行の字」。行の番号では結ばない
+    （数え違えた番号も、番号としては通ってしまい、機械で確かめられないため）。"""
+    a = anchor.strip()
+    for q in ("「」", "``", "''", '""'):
+        if len(a) > 2 and a[0] == q[0] and a[-1] == q[1] and find_line(lines, a, start) is None:
+            a = a[1:-1].strip()
+    i = find_line(lines, a, start)
+    if i is not None:
+        return i, i
+    parts = RANGE_SEP.split(a, maxsplit=1)
+    if len(parts) == 2:
+        i = find_line(lines, parts[0], start)
+        if i is None:
+            return None
+        end = parts[1].strip()
+
+        def has(k: int) -> bool:
+            return bool(end) and (end in lines[k] or (len(_squash(end)) >= 3 and _squash(end) in _squash(lines[k])))
+        # 終わりの字は、始めの行の次の行から先に探す（「)」のような短い字が、始めの行に当たって1行になるのを避ける）。
+        # 無ければ、始めの行（始めと終わりが同じ行にあるとき）
+        j = next((k for k in range(i + 1, len(lines)) if has(k)), i if has(i) else None)
+        return (i, j) if j is not None else (i, i)
+    return None
+
+
+def reading_code(body: str) -> tuple[dict | None, list[str]]:
+    """読むコード（tonari-code）。塊の形は、頭（lang・title・why の行）、--- の行、コード、--- の行、注釈の行。
+    注釈は1行に「行から写した字｜見出し｜説明」。行から写した字がコードのどの行にも無い注釈は捨てる。
+    頭も注釈も無ければ、素のコードの塊と同じに出す。（整えた塊か None, 捨てた理由の一覧）"""
+    lines = str(body or "").replace("\r", "").split("\n")
+    seps = [i for i, l in enumerate(lines) if l.strip() == "---"]
+    head: dict[str, str] = {}
+    start = 0
+    if seps and any(l.strip() for l in lines[:seps[0]]) and all(CODE_HEAD.match(l) or not l.strip() for l in lines[:seps[0]]):
+        for l in lines[:seps[0]]:
+            m = CODE_HEAD.match(l)
+            if m:
+                head[m.group(1)] = m.group(2)
+        start = seps[0] + 1
+    elif seps and not any(l.strip() for l in lines[:seps[0]]):   # 頭が空（--- から始まる）
+        start = seps[0] + 1
+    elif not seps and re.match(r"^\s*lang\s*[:：]", lines[0] if lines else ""):
+        # 区切りが無い: 1行目が lang: のときだけ、続く lang・title・why の行を頭として読む（コードの1行目が name: … の
+        # YAML などを、頭と取り違えない）
+        while start < len(lines) and (m := CODE_HEAD.match(lines[start])) and m.group(1) != "name":
+            head[m.group(1)] = m.group(2)
+            start += 1
+    end, raw_notes = len(lines), []
+    later = [i for i in seps if i >= start]
+    # うしろの --- から順に見て、そのあとが注釈の形（｜が2つ以上）の行だけなら、そこからが注釈。そうでなければコードの一部。
+    # 注釈のあとをもう一度 --- で閉じる書き方もある（本物の先生役の答えにあった）ので、あとに残る --- の行は数えない
+    for sep in reversed(later):
+        tail = [l for l in lines[sep + 1:] if l.strip() and l.strip() != "---"]
+        if tail and all(l.count("｜") >= 2 for l in tail):
+            end, raw_notes = sep, tail
+            break
+        if tail:
+            break
+        end = sep   # あとに何も無い --- は、閉じの印（コードに入れない）。もう1つ前の --- を見る
+    v = code_view(head.get("lang"), "\n".join(lines[start:end]), head.get("title", ""), head.get("why", ""))
+    if v is None:
+        return None, ["中身が空"]
+    code_lines = v["code"].split("\n")
+    notes, bad, at = [], [], 0
+    for l in raw_notes:
+        anchor, label, text = (x.strip() for x in l.split("｜", 2))
+        hit = _anchor(code_lines, anchor, at)
+        if hit is None:
+            bad.append(f"注釈を捨てた（コードの行に結べない: {anchor[:24]}）")
+            continue
+        if not text:
+            bad.append(f"注釈を捨てた（説明が空: {label[:16]}）")
+            continue
+        notes.append({"from": hit[0] + 1, "to": hit[1] + 1, "label": label[:NOTE_LABEL], "text": text[:NOTE_TEXT]})
+        at = hit[0]
+    notes.sort(key=lambda n: (n["from"], n["to"]))
+    if len(notes) > NOTES_MAX:
+        bad.append(f"{NOTES_MAX + 1}つ目からの注釈（{len(notes) - NOTES_MAX}つ）")
+        notes = notes[:NOTES_MAX]
+    v["notes"] = notes
+    if notes:
+        v["name"] = _s(head.get("name"), 12) or "読むコード"
+    return v, bad
+
+
 def verify_view(t: str, d, body: str | None = None) -> tuple[dict | None, str | None]:
     """図の塊を機械の決まりで確かめる。合えば（整えた塊, None）、合わなければ（None, 捨てた理由）。
 
@@ -416,6 +598,12 @@ def verify_view(t: str, d, body: str | None = None) -> tuple[dict | None, str | 
         if p is None:
             return None, why
         v.update(p)
+    elif t == "arch":
+        a, why = arch.check(d)
+        if a is None:
+            return None, why
+        kind, ref = src_kind(_s(d.get("src"), 120))
+        v.update(a, src=kind, src_ref=ref)
     elif t == "compare":
         items = [_s(x, 20) for x in (d.get("items") or []) if _s(x)]
         if not 2 <= len(items) <= 4:
@@ -468,6 +656,8 @@ def verify_view(t: str, d, body: str | None = None) -> tuple[dict | None, str | 
         if not d.get("root"):
             return None, "階層の木: root が無い"
         v.update(root=_s(d.get("root"), 30), children=d.get("children") or [])
+        if d.get("kind") == "files":   # フォルダとファイルの並び（v0.7。等幅の字で、名前の終わりの / がフォルダ）
+            v["kind"] = "files"
     elif t == "map":
         if not d.get("center"):
             return None, "位置の図: center が無い"
@@ -504,14 +694,38 @@ def parse_blocks(md: str, legacy: bool = False, pair_verdicts: list | None = Non
     たとえの塊ごとに返した結果（決まりを通ったたとえの塊の順）。"""
     out = {"map": None, "check": [], "grade": [], "tree": None, "mermaid": [], "views": [], "errors": [], "text": "",
            "lookup": None}
-    whole_prose = strip_blocks(md)   # 塊の外の本文（たとえの実際の名前と、しくみの絵の部品の名前を照らす）
+    # 塊の外の本文（たとえの実際の名前と、しくみの絵の部品の名前を照らす）。コードの塊の中の字も数える（v0.6 までは、素の
+    # コードは本文の一部だった。コードにしか出ない名前の図が、v0.7 で消えないように）
+    whole_prose = strip_blocks(md) + "".join("\n" + (m.group(2) or m.group(6) or "") for m in SCAN_RE.finditer(md)
+                                              if m.group(1) or m.group(5) is not None)
     prose = None if legacy else whole_prose   # たとえは、v0.4 より前の答えなら照らさない（前の決まりで読む）
     n_analogy = 0
     parts, last = [], 0
-    for m in BLOCK_RE.finditer(md):
+
+    def put_code(v: dict | None, bad: list[str], kind: str) -> None:
+        if v is None:
+            out["errors"].append(f"{kind}: 中身が空")
+        elif sum(1 for x in out["views"] if x["type"] == "code") >= CODE_MAX:
+            out["errors"].append(f"{kind}: {CODE_MAX + 1}つ目からのコードの塊")
+        else:
+            if bad:
+                out["errors"].append(f"{kind}: 一部を捨てた（" + "・".join(bad[:6]) + "）")
+            parts.append(f"\n\n[[view:{len(out['views'])}]]\n\n")
+            out["views"].append(v)
+
+    for m in SCAN_RE.finditer(md):
         parts.append(md[last:m.start()])
         last = m.end()
-        kind, body = m.group(1), m.group(2).strip()
+        if m.group(5) is not None:   # 素のコードの塊
+            put_code(code_view(m.group(5), m.group(6)), [], "コード")
+            continue
+        if m.group(1):               # 読むコード（閉じが行の頭にある）
+            put_code(*reading_code(m.group(2)), kind="tonari-code")
+            continue
+        kind, body = m.group(3), m.group(4).strip()
+        if kind == "tonari-code":    # 読むコードの閉じが行の頭に無かった
+            put_code(*reading_code(m.group(4)), kind="tonari-code")
+            continue
         if kind == "mermaid":
             first, _, rest = body.partition("\n")
             head = MERMAID_HEAD.match(first)
@@ -559,11 +773,14 @@ def parse_blocks(md: str, legacy: bool = False, pair_verdicts: list | None = Non
             out["tree"] = d
         if t == "map" and isinstance(d, dict) and d.get("show") is False:
             continue   # 記録だけの位置の図（画面に描かない）
-        v, why = verify_view(t, d, prose if t == "analogy" else whole_prose if t == "parts" else None)
+        try:
+            v, why = verify_view(t, d, prose if t == "analogy" else whole_prose if t == "parts" else None)
+        except Exception as e:   # 塊の形が思いがけない（配列の所に数、など）。その塊だけを捨てる
+            v, why = None, f"決まりの確かめで落ちた（{type(e).__name__}）"
         if v is None:
             out["errors"].append(f"{kind}: {why}")
             continue
-        if t == "parts" and v.get("dropped"):   # 塊は残して、部品・やりとり・入れ子の一部を捨てたり直したりした
+        if t in ("parts", "arch") and v.get("dropped"):   # 塊は残して、部品・やりとり・入れ子の一部を捨てたり直したりした
             out["errors"].append(f"{kind}: 一部を捨てた（" + "・".join(v.pop("dropped")[:6]) + "）")
         if t == "analogy" and not v.get("legacy"):
             dropped = v.pop("dropped", None)
@@ -597,7 +814,8 @@ def think_view(body: str) -> dict | None:
 
 
 def strip_blocks(md: str) -> str:
-    return BLOCK_RE.sub("", md).strip()
+    """塊（図・たとえ・考え・コード）を除いた本文。字数の目安と、本文との照らしに使う。"""
+    return SCAN_RE.sub("", md).strip()
 
 
 def turn_blocks(md: str, st: dict | None) -> dict:
@@ -940,7 +1158,7 @@ def turn_content(session_id: int, text: str, kind: str, via: str, unsure: list[d
                  plan: dict | None = None) -> str:
     parts = [recap] if recap else []   # 指示が変わって新しい会話で続けるときの、これまでの往復（resume_plan）
     plan = plan or detail_plan(session_id, text, kind, detail, ref)
-    parts.append(f"<詳しさ>本文の目安 {plan['chars']}字（{plan['why']}。図の塊・たとえの塊・考えの塊は数えない）</詳しさ>")
+    parts.append(f"<詳しさ>本文の目安 {plan['chars']}字（{plan['why']}。図の塊・たとえの塊・考えの塊・コードの塊は数えない）</詳しさ>")
     if ref:
         parts.append(f"<見せ直しの元>前の答えの図は「{ref.get('name') or 'なし（文だけ）'}」（{ref.get('type') or 'text'}）でした。"
                      f"中身は同じで、違う形で見せ直します。</見せ直しの元>")

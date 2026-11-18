@@ -7,6 +7,9 @@
   const M = window.TonariMap;
   const V = window.TonariViews;
   const Atlas = window.TonariAtlas;
+  const Zoom = window.TonariZoom;
+  const Code = window.TonariCode;
+  const Arch = window.TonariArch;
   const H = { "X-Tonari": "1" };
   // ── キーの割り当て（設定の画面で変えられる。変えていない操作は OS の既定） ─────
   // 形は e.code を + でつないだもの（例 "Alt+KeyN"）。open だけは修飾キー＋数字（"Alt+Digit"）。
@@ -164,10 +167,14 @@
         if (predictingFor(ev.turn_id)) S.hold = ev.turn_id;   // 予想を話している・打っている途中に届いた答えは、送るまで畳んでおく
       }
       delete S.streams[ev.turn_id];
-      const covered = document.hidden || Atlas.isOpen();   // 窓が隠れている・全体の地図が往復の列を覆っている
+      const covered = document.hidden || Atlas.isOpen() || Zoom.isOpen();   // 窓が隠れている・全体の地図や、大きく見ている図が往復の列を覆っている
       if (ev.session_id === S.active && !covered) api("POST", `/api/sessions/${ev.session_id}/read`).catch(() => {});
       else chime();
-      if (Atlas.isOpen()) Atlas.news(S.atlasNews = (S.atlasNews || 0) + 1);
+      if (Atlas.isOpen()) {
+        Atlas.news(S.atlasNews = (S.atlasNews || 0) + 1);
+        // いまの話題に届いた答え。往復の列の取り直しが終わる前に「読みに戻る」を押されても、この話題に届いたと分かるように覚える
+        if (ev.session_id === S.active) S.atlasHere = S.active;
+      }
     }
     // 記録役が、届いた答えに記録用の地図と確かめの問いを足した（v0.5）。答えの表示は変わらないので、地図だけ描き直す
     // 読んでいる最中の答えを描き直さない（選んだ字と図が消える）。往復の中身だけ取り直して、右の地図を描く
@@ -244,7 +251,7 @@
   // 開いた時刻は戻ったときの確かめの時計なので、本人が別の話題にいるあいだに届いた答えには、ここで初めて付く
   function revealShown(force = false, note = true) {
     const d = S.detail;
-    if (!d || Atlas.isOpen() || (document.hidden && !force)) return 0;
+    if (!d || Atlas.isOpen() || Zoom.isOpen() || (document.hidden && !force)) return 0;
     const ids = d.turns.filter((t) => t.status === "done" && t.answer != null && !t.revealed_at && t.id !== S.hold && !foldable(t)).map((t) => t.id);
     if (!ids.length) return 0;
     const now = Date.now() / 1000;
@@ -695,13 +702,14 @@
 
   // 答えの本文の [[view:N]] の置き場所に図を入れる。最初の段落が図でなければ、言い切りとして大きく出す
   function viewHTML(v, vi, extra = {}) {
-    const first = !S.seenAtBoot.has(v.type);
-    if (first) S.seenNow.add(v.type);
+    const key = V.readKey(v);   // 読み方を添える単位（読むコード・ファイルの並び・状態の図などは、図の型より細かく分ける）
+    const first = !!key && !S.seenAtBoot.has(key);
+    if (first) S.seenNow.add(key);
     return V.render(v, { states: S.states, firstTime: first, vi, ...extra });
   }
 
   // 答えの図（たとえの塊は図に数えない添え物なので飛ばす）
-  const mainIdx = (views) => (views || []).findIndex((v) => v.type !== "analogy" && v.type !== "think");
+  const mainIdx = (views) => (views || []).findIndex((v) => v.type !== "analogy" && v.type !== "think" && v.type !== "code");
 
   // 考えの塊（v0.5）: 先生役の推測・仮定・考えの筋道。事実の段落と見分けられるように、札と破線の枠で出す
   const THINK_NOTE = { "推測": "根拠はあるが、確かめていない見立てです", "仮定": "答えの前提として置いたことです", "考えの筋道": "こう考えると筋が通る、という説明です（頭の中の記録そのものではありません）" };
@@ -890,7 +898,8 @@
   async function openPage(pid) {
     let p;
     try { p = await api("GET", `/api/pages/${pid}`); } catch (e) { toast("ページが見つかりません"); return; }
-    const cref = (html) => html.replace(/\[(\d+)\]/g, (m, n) => `<a class="cref" href="#claim-${n}" data-cref="${n}">${n}</a>`);
+    // 主張の番号 [3] を、下の主張への送りにする。タグの中（文の中のコードの語の属性など）の [3] には触らない
+    const cref = (html) => html.replace(/(<[^>]*>)|\[(\d+)\]/g, (m, tag, n) => tag || `<a class="cref" href="#claim-${n}" data-cref="${n}">${n}</a>`);
     const c = p.counts || {};
     const un = (c.not_found || 0) + (c.unreachable || 0);
     $("#pageTitle").textContent = p.title || "Web で調べたページ";
@@ -925,7 +934,7 @@
       .map(([k, l]) => { const i = steps.findIndex((x) => x[0] === k); return `<span class="pg${i < idx ? " ok" : i === idx ? " on" : ""}">${l}</span>`; }).join("");
     const tool = S.tools[t.id] ? `<span class="pg-tool">棚を読んでいます（${esc(S.tools[t.id])}）</span>` : "";
     const note = S.notes[t.id] ? `<span class="pg-tool">${esc(S.notes[t.id])}</span>` : "";
-    const live = S.streams[t.id] ? `<div class="live">${esc(S.streams[t.id].replace(/```[\s\S]*?(```|$)/g, "（図を描いています）")).slice(-1800)}</div>` : "";
+    const live = S.streams[t.id] ? `<div class="live">${esc(S.streams[t.id].replace(/```[\s\S]*?(```|$)/g, "（図かコードを書いています）")).slice(-1800)}</div>` : "";
     return `<div class="pg-row">${bar}${tool}${note}</div>${live}`;
   }
 
@@ -1080,6 +1089,19 @@
       const fig = art.querySelector(`.view.v-parts[data-vi="${i}"]`);
       if (fig) $$("[data-pg]", fig).forEach((x) => { x.dataset.pg = `${t.id}-${i}`; });
     });
+    // 読むコード（v0.7）の注釈と行の組（data-g）も、描き直しても変わらない名前にする。本文の `名前` は、コードの同じ字と結ぶ
+    (t.views || []).forEach((v, i) => {
+      if (v.type !== "code") return;
+      const fig = art.querySelector(`.view.v-code[data-vi="${i}"]`);
+      if (fig) $$("[data-pg]", fig).forEach((x) => { x.dataset.pg = `${t.id}-c${i}`; });
+    });
+    // 構成の図に、描き直しても変わらない名前を付けて、留めていた箱を戻す（web/arch.js が名前ごとに覚えている）
+    (t.views || []).forEach((v, i) => {
+      if (v.type !== "arch") return;
+      const fig = art.querySelector(`.view.v-arch[data-vi="${i}"]`);
+      if (fig) { fig.dataset.akey = `${t.id}-${i}`; Arch.restore(fig); }
+    });
+    Code.linkWords(art, t.id);
     // B3: 図のラベルと同じ字の『用語』を結ぶ（全部の図の型で同じ印 data-lab・位置の図は札の data-label）
     const labs = new Map();
     for (const el of $$(".view [data-lab], .view .node[data-label]", art)) {
@@ -1090,8 +1112,10 @@
       labs.get(f).push(el);
     }
     let n = 0;
-    for (const term of $$(".lead .term, .prose .term", art)) {
-      const els = labs.get(foldStr(term.dataset.term));
+    // 図の名前を、先生役が `…`（コードの語）で書くこともある（本物の答えで、構成の図の箱の名前がそう書かれた）。
+    // コードの中の字と結ばれていないコードの語は、同じ字の図の名前と結ぶ
+    for (const term of $$(".lead .term, .prose .term, .lead code[data-code]:not([data-link]), .prose code[data-code]:not([data-link])", art)) {
+      const els = labs.get(foldStr(term.dataset.term ?? term.dataset.code));
       if (!els) continue;
       const id = els[0].dataset.link || `${t.id}~${n++}`;
       term.dataset.link = id;
@@ -1535,7 +1559,7 @@
   const allowed = (a, e) => !e.isComposing && (hasMods(KEYS[a]) || !typing());
   document.addEventListener("keydown", (e) => {
     if (S.capture) { captureKey(e); return; }
-    if ($("#settings").open || Atlas.isOpen() || Atlas.state.opening) return;   // 地図のキーは web/atlas.js が受ける
+    if ($("#settings").open || Atlas.isOpen() || Atlas.state.opening || Zoom.isOpen()) return;   // 地図と、大きく見ている図のキーは、それぞれの部品が受ける
     if (hit(e, "atlas") && allowed("atlas", e)) { e.preventDefault(); if (!e.repeat) openAtlas(); return; }
     if (hit(e, "new") && allowed("new", e)) { e.preventDefault(); newSession(true); return; }
     if (hit(e, "next") && allowed("next", e)) { e.preventDefault(); goNext(); return; }
@@ -1567,7 +1591,7 @@
 
   // 押したボタンに focus が残っていると、話すキーを離したときにそのボタンも押されるので止める
   document.addEventListener("keyup", (e) => {
-    if (Atlas.isOpen()) return;   // 全体の地図の中では、話すキー（Space）でボタンを押せるままにする
+    if (Atlas.isOpen() || Zoom.isOpen()) return;   // 全体の地図と、大きく見ている図の中では、話すキー（Space）でボタンを押せるままにする
     if (!S.capture && hit(e, "talk") && !typing()) e.preventDefault();
   });
 
@@ -1575,6 +1599,7 @@
   // 主な経路の外の寄り道なので、押したときにだけ開く。録音中・ほかの小窓が開いているあいだは開かない
   function openAtlas() {
     S.atlasNews = 0;
+    S.atlasHere = null;
     return Atlas.open();
   }
   Atlas.init({
@@ -1592,18 +1617,35 @@
     showEgo: (cid) => { S.egoId = cid; S.sideTab = "ego"; paintSide(); },
     ask: (label) => sendText(`${label}を、私が分かっている周りの概念を足場にして説明して`, "question", "click"),
     // いま開いている話題に、地図が覆っているあいだに届いて、まだ読める形で出していない答えがあるか
-    unreadHere: () => !!(S.detail && S.detail.session.id === S.active &&
-      S.detail.turns.some((t) => t.status === "done" && t.answer != null && !t.revealed_at && !foldable(t) && t.id !== S.hold)),
+    // 知らせが出た直後は、往復の列の取り直しがまだ終わっていない（列の中では、その答えはまだ届いていない扱い）。その間に
+    // 押されると、前は「この話題には無い」と読んで別の話題へ移っていたので、届いた知らせそのもの（S.atlasHere）も見る
+    unreadHere: () => !!S.active && (S.atlasHere === S.active || !!(S.detail && S.detail.session.id === S.active &&
+      S.detail.turns.some((t) => t.status === "done" && t.answer != null && !t.revealed_at && !foldable(t) && t.id !== S.hold))),
     // 地図を閉じた: 覆っているあいだに届いた答えを、ここで初めて読める形で出したことにする。
     // 閉じてすぐ別の話題へ移るとき（reveal が偽）は、いまの話題の答えを読んだことにしない
     onClose: (o = {}) => {
       S.atlasNews = 0;
+      S.atlasHere = null;
       if (o.reveal !== false) {
         if (S.active && !document.hidden) api("POST", `/api/sessions/${S.active}/read`).catch(() => {});
         if (revealShown()) { paintThread(false); paintSide(); }
       }
       paintStrip();
       refreshRailSoon();
+    },
+  });
+
+  // 図とコードの上でしたこと（写す・大きく見る・箱を留める・間接も含める）は、数だけ残す（v0.7 の物差し）
+  document.addEventListener("tonari:act", (e) => { api("POST", "/api/view/act", { what: e.detail.what }).catch(() => {}); });
+
+  // ── 図を大きく見る（v0.7・web/zoom.js） ──────────────────
+  // 窓が往復の列を覆うので、覆っているあいだに届いた答えは、閉じたときに初めて読める形で出したことにする（全体の地図と同じ）
+  Zoom.init({
+    canOpen: () => S.rec.phase === "idle" && !document.querySelector("dialog[open]"),
+    onClose: () => {
+      if (S.active && !document.hidden) api("POST", `/api/sessions/${S.active}/read`).catch(() => {});
+      if (revealShown()) { paintThread(false); paintSide(); }
+      paintStrip();
     },
   });
 
@@ -1772,6 +1814,13 @@
     if (d.askc) { sendText(`${d.askc}を、私が分かっている周りの概念を足場にして説明して`, "question", "click"); return; }
     if (d.askrel) { sendText(`${d.askrel}の周りの関係を、確かめの問題にして出して`, "command", "click"); return; }
     if (d.ask) { sendText(`${d.ask}を説明して`, "question", "click"); return; }
+    // 構成の図（v0.7）: 留めた箱の中を聞く・変えると響く所を聞く。大きく見ている窓からなら、窓を閉じてから送る
+    if (d.arask || d.arimpact) {
+      api("POST", "/api/view/act", { what: d.arask ? "inside" : "impact" }).catch(() => {});
+      Zoom.close();
+      sendText(d.arask || d.arimpact, "question", "click");
+      return;
+    }
     if (d.altask) { sendText(d.altask, "question", "click", { alt: true }); return; }
     if (d.redo) {
       const t = S.detail.turns.find((x) => x.id === Number(d.tid));
@@ -1936,7 +1985,7 @@
   });
 
   document.addEventListener("visibilitychange", () => {
-    if (!document.hidden && S.active) {
+    if (!document.hidden && S.active && !Atlas.isOpen() && !Zoom.isOpen()) {   // 地図や大きく見る窓が列を覆っているあいだは、読んだことにしない（閉じたときに送る）
       api("POST", `/api/sessions/${S.active}/read`).catch(() => {});
       if (revealShown()) { paintThread(false); paintSide(); }   // 窓が隠れているあいだに届いた答え
     }
@@ -1969,6 +2018,6 @@
     paintTalk();
     setInterval(paintRail, 30000);
     api("GET", "/api/health").then(paintSetupWarn).catch(() => {});
-    window.tonari = { S, open, goNext, sendText, loadState, loadDetail, paintSide, paintStrip, stripState, sendStrip, closeStrip, offerElsewhere, openAtlas, Atlas };
+    window.tonari = { S, open, goNext, sendText, loadState, loadDetail, paintSide, paintStrip, stripState, sendStrip, closeStrip, offerElsewhere, openAtlas, Atlas, Zoom };
   })();
 })();

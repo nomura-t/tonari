@@ -85,6 +85,10 @@ def stats(con) -> dict:
         "more_clicks": sum(x.startswith("続きを") for x in said.values()),
         "deeper_asks": sum(("詳しく" in x or "くわしく" in x) and not x.startswith("続きを") for x in said.values()),
         "turns_with_think": sum("think" in s for s in shapes.values()),
+        # v0.7 の物差し（DESIGN 18章）: コードの塊・読むコード・構成の図が出た往復の数
+        "turns_with_code": sum("code" in s for s in shapes.values()),
+        "turns_with_reading_code": sum(any(isinstance(x, dict) and x.get("type") == "code" and x.get("name") == "読むコード" for x in (s.get("shapes") or [])) for s in st.values()),
+        "turns_with_arch": sum("arch" in s for s in shapes.values()),
         "lookup_offered": sum(bool(s.get("lookup")) for s in st.values()),
         "research_turns": sum(t["via"] == "research" for t in turns),
         "budget_median": (lambda b: sorted(b)[len(b) // 2] if b else None)([s["budget"]["chars"] for s in st.values() if isinstance(s.get("budget"), dict)]),
@@ -123,6 +127,10 @@ def stats(con) -> dict:
         "atlas_opens": acts.get("open", 0),
         "atlas_then": {k: acts.get(k, 0) for k in ("concept", "topic", "open_topic", "ego", "ask", "find")},
     })
+    # v0.7: 答えの図とコードの上でしたこと（写す・大きく見る・構成の図の箱を留める・間接も含める・箱の中を聞く・響く所を聞く）
+    vacts = ({r["state"]: r["n"] for r in con.execute("SELECT state, COUNT(*) AS n FROM log WHERE kind='view' GROUP BY state")}
+             if "log" in tbl else {})
+    out["view_acts"] = {k: vacts.get(k, 0) for k in ("copy", "zoom", "pin", "deep", "inside", "impact")}
     return out
 
 

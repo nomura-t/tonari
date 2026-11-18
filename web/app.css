@@ -907,3 +907,183 @@ text[data-link].hl { fill: var(--ready); font-weight: 700; }
 .at-re { margin: 14px 0 0; color: var(--ink-2); }
 .all-atlas { margin-left: 10px; white-space: nowrap; }
 @media (max-width: 1180px) { .at-body { grid-template-columns: minmax(0, 1fr) 300px; } }
+
+/* ── v0.7: コード・読むコード・構成の図・ファイルの並び・図を大きく見る窓（DESIGN 18章） ───────── */
+/* 字句の色。地の色は墨のまま、色を付けるのは注釈・文字列・数と値・予約語・定義する名前・型・印・項目の名前だけ。
+   明るい地でも暗い地でも、地との差（明るさ）を先にそろえ、色みは控えめにする */
+:root {
+  --tk-com: oklch(0.560 0.014 258);
+  --tk-str: oklch(0.455 0.110 150);
+  --tk-num: oklch(0.480 0.130 45);
+  --tk-kw: oklch(0.455 0.170 290);
+  --tk-def: oklch(0.430 0.160 258);
+  --tk-type: oklch(0.455 0.090 205);
+  --tk-meta: oklch(0.480 0.100 75);
+  --tk-var: oklch(0.470 0.140 330);
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --tk-com: oklch(0.640 0.012 258);
+    --tk-str: oklch(0.800 0.110 150);
+    --tk-num: oklch(0.800 0.110 60);
+    --tk-kw: oklch(0.780 0.120 290);
+    --tk-def: oklch(0.800 0.110 250);
+    --tk-type: oklch(0.800 0.080 205);
+    --tk-meta: oklch(0.820 0.100 85);
+    --tk-var: oklch(0.790 0.110 330);
+  }
+}
+.tk-com { color: var(--tk-com); }
+.tk-str { color: var(--tk-str); }
+.tk-num, .tk-lit { color: var(--tk-num); }
+.tk-kw { color: var(--tk-kw); }
+.tk-def { color: var(--tk-def); font-weight: 600; }
+.tk-fn { color: var(--ink); }
+.tk-type { color: var(--tk-type); }
+.tk-meta { color: var(--tk-meta); }
+.tk-prop { color: var(--tk-def); }
+.tk-var { color: var(--tk-var); }
+.tk-out { color: var(--ink-2); }
+
+/* 素のコードは、コードの箱だけを出す（図の枠と名前は付けない）。読むコードは、図と同じ枠に、名前と理由を付ける */
+.view.v-code:not(.has-notes) { padding: 0; border: 0; background: none; }
+.v-code .v-body { container-type: inline-size; }
+.cd-wrap { display: grid; gap: 10px 16px; align-items: start; }
+@container (min-width: 640px) { .v-code.has-notes .cd-wrap { grid-template-columns: minmax(0, 1.55fr) minmax(210px, 1fr); } }
+.cd-box { min-width: 0; border: 1px solid var(--line); border-radius: var(--r-md); background: var(--bg); overflow: hidden; }
+.cd-bar { display: flex; align-items: center; gap: 10px; padding: 4px 6px 4px 12px; border-bottom: 1px solid var(--line); background: var(--surface); font-size: 11.5px; color: var(--ink-2); min-height: 28px; }
+.cd-lang { font-weight: 650; letter-spacing: .02em; white-space: nowrap; }
+.cd-title { color: var(--ink); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cd-copy { margin-left: auto; flex: none; border: 1px solid transparent; background: none; border-radius: var(--r-sm); padding: 1px 8px; font-size: 11.5px; color: var(--ink-2); }
+.cd-copy:hover { border-color: var(--line); background: var(--bg); color: var(--ink); }
+.cd-copy.done { color: var(--ok-ink); }
+.cd-pre { margin: 0; padding: 8px 0; overflow-x: auto; font: 12.5px/1.7 var(--font-num); tab-size: 4; color: var(--ink); }
+.cd-pre:focus-visible { outline: 2px solid var(--ready); outline-offset: -2px; }
+.cd-code { display: block; min-width: max-content; font: inherit; background: none; padding: 0; }
+.cdl { display: block; position: relative; padding: 0 16px 0 3.5em; white-space: pre; border-left: 3px solid transparent; transition: background-color var(--dur-hl) var(--ease); }
+.cdl::before { content: attr(data-n); position: absolute; left: 0; width: 2.5em; text-align: right; font-size: 11px; color: var(--ink-2); opacity: .6; -webkit-user-select: none; user-select: none; }
+.cdl-t:empty::after { content: "\200b"; }   /* 空の行にも1行ぶんの高さを保つ（字としては何も足さない） */
+.cd-short .cdl { padding-left: 13px; }
+.cd-short .cdl::before { content: none; }
+.v-code.has-notes .cdl { padding-left: 5em; }
+.cdl.in-note { border-left-color: color-mix(in oklch, var(--ready) 38%, transparent); background: color-mix(in oklch, var(--ready) 4%, transparent); cursor: pointer; }
+.cdl[data-k]::after { content: attr(data-k); position: absolute; left: 3.05em; top: .28em; min-width: 16px; height: 16px; padding: 0 3px; border-radius: var(--r-pill); border: 1.2px solid var(--edge); background: var(--bg); font: 650 10px/14px var(--font-num); text-align: center; color: var(--ink); -webkit-user-select: none; user-select: none; }
+.cdl.hl { background: color-mix(in oklch, var(--ready) 15%, transparent); border-left-color: var(--ready); }
+.cdl.hl[data-k]::after { background: var(--ready); border-color: var(--ready); color: var(--bg); }
+.cdl.d-add { background: color-mix(in oklch, var(--ok-ink) 11%, transparent); }
+.cdl.d-del { background: color-mix(in oklch, var(--bad-ink) 10%, transparent); }
+.cdl.d-at { color: var(--ink-2); }
+.cd-cut { margin: 0; padding: 4px 12px; border-top: 1px solid var(--line); font-size: 11.5px; color: var(--ink-2); }
+.cd-notes { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; font-size: 13px; }
+.cd-note { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 0 9px; padding: 6px 8px; border-radius: var(--r-sm); cursor: pointer; transition: background-color var(--dur-hl) var(--ease); }
+.cd-note:focus-visible { outline: 2px solid var(--ready); outline-offset: -2px; }
+.cd-no { grid-row: 1 / span 2; align-self: start; margin-top: 3px; display: inline-grid; place-items: center; min-width: 18px; height: 18px; padding: 0 4px; border-radius: var(--r-pill); border: 1.2px solid var(--edge); font: 650 11px/1 var(--font-num); color: var(--ink); }
+.cd-note b { display: block; font-weight: 650; line-height: 1.5; }
+.cd-note p { margin: 0; line-height: 1.65; color: var(--ink); }
+.cd-note code { font: 12px var(--font-num); background: var(--surface-2); padding: 1px 4px; border-radius: 4px; }
+.cd-at { grid-column: 2; font: 11px/1.6 var(--font-num); color: var(--ink-2); }
+.cd-note.hl { background: color-mix(in oklch, var(--ready) 13%, transparent); }
+.cd-note.hl .cd-no { background: var(--ready); border-color: var(--ready); color: var(--bg); }
+/* 本文の `名前` と、コードの中の同じ字（指すと両方が光る） */
+code[data-link] { cursor: pointer; text-decoration: underline dotted color-mix(in oklch, var(--ready) 60%, transparent); text-underline-offset: 3px; }
+code[data-link].hl, .tok-ref.hl { background: color-mix(in oklch, var(--ready) 24%, transparent); box-shadow: 0 0 0 2px color-mix(in oklch, var(--ready) 24%, transparent); border-radius: 3px; }
+.cdl[data-link].hl { background: color-mix(in oklch, var(--ready) 13%, transparent); }
+.md-pre { background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-md); padding: 10px 12px; overflow-x: auto; font: 12.5px/1.6 var(--font-num); margin: 0 0 12px; }
+.md-pre code { background: none; padding: 0; font: inherit; }
+/* 文の部品（番号つきの箇条書き・入れ子・引用の段・外へのリンク） */
+.prose ol { margin: 0 0 12px; padding-left: 1.6em; }
+.prose li > ul, .prose li > ol { margin: 2px 0 2px; }
+.prose blockquote, .think-body blockquote { margin: 0 0 12px; padding: 2px 12px; border-left: 2px solid var(--line); color: var(--ink-2); }
+a.ext { color: var(--link); text-decoration: underline; text-decoration-color: color-mix(in oklch, var(--link) 40%, transparent); text-underline-offset: 3px; overflow-wrap: anywhere; }
+
+/* 図を大きく見る（図の名前の行の右） */
+.v-zoom { margin-left: auto; border: 0; background: none; padding: 0; font-size: 12px; color: var(--link); }
+.v-zoom:hover { text-decoration: underline; }
+
+/* 構成の図 */
+.ar-how { margin: 0 0 8px; font-size: 12.5px; color: var(--ink-2); }
+.ar-how b { font: 600 12px var(--font-num); color: var(--ink); }
+.ar-wrap { overflow-x: auto; text-align: center; }
+.ar-svg { max-width: 100%; height: auto; font-family: var(--font-body); }
+.ar-band rect { fill: color-mix(in oklch, var(--surface-2) 50%, transparent); stroke: var(--line); stroke-dasharray: 5 4; }
+.ar-bl { font-size: 11.5px; font-weight: 650; fill: var(--ink-2); paint-order: stroke; stroke: var(--surface); stroke-width: 5px; stroke-linejoin: round; pointer-events: none; }
+.ar-node, .ar-edge { cursor: pointer; outline: none; }
+.ar-node rect { fill: var(--bg); stroke: var(--edge); stroke-width: 1.3; transition: stroke var(--dur-hl) var(--ease), fill var(--dur-hl) var(--ease); }
+.ar-node.k-external rect { stroke-dasharray: 5 3; }
+.ar-node.k-person rect { rx: 18px; }
+.ar-lab { font-size: 13px; font-weight: 600; fill: var(--ink); }
+.ar-tech { font: 11px var(--font-num); fill: var(--ink-2); }
+.ar-gl { fill: none; stroke: var(--ink-2); stroke-width: 1.2; stroke-linecap: round; stroke-linejoin: round; }
+.ar-line { fill: none; stroke: var(--edge); stroke-width: 1.4; transition: stroke var(--dur-hl) var(--ease); }
+.ar-hit { fill: none; stroke: transparent; stroke-width: 12; }
+.ar-arr { fill: var(--edge); }
+.ar-edge.cyc .ar-line { stroke: var(--bad-ink); stroke-dasharray: 6 3; }
+.ar-edge.cyc .ar-arr { fill: var(--bad-ink); }
+.ar-edge.up .ar-line { stroke: var(--warn-ink); stroke-dasharray: 2 3; stroke-width: 1.8; }
+.ar-edge.up .ar-arr { fill: var(--warn-ink); }
+.ar-el { font-size: 11px; fill: var(--ink-2); paint-order: stroke; stroke: var(--bg); stroke-width: 4px; stroke-linejoin: round; pointer-events: none; }
+/* 指した箱（太い墨の枠）・その箱が使うもの（青）・その箱を使うもの（緑）。ほかは薄くする */
+.v-arch { --ar-uses: var(--ready); --ar-usedby: var(--ok-ink); }
+.v-arch.has-sel .ar-node:not(.sel):not(.uses):not(.usedby) { opacity: .3; }
+.v-arch.has-sel .ar-edge:not(.on), .v-arch.has-sel .ar-el:not(.on) { opacity: .14; }
+.ar-node.sel rect { stroke: var(--ink); stroke-width: 2.6; }
+.ar-node.uses rect { stroke: var(--ar-uses); stroke-width: 2; fill: color-mix(in oklch, var(--ar-uses) 9%, var(--bg)); }
+.ar-node.usedby rect { stroke: var(--ar-usedby); stroke-width: 2; fill: color-mix(in oklch, var(--ar-usedby) 10%, var(--bg)); }
+.ar-node.uses.usedby rect { stroke: var(--bad-ink); fill: color-mix(in oklch, var(--bad-ink) 8%, var(--bg)); }
+.ar-edge.on .ar-line { stroke-width: 2.2; stroke: var(--ink); }
+.ar-edge.on .ar-arr { fill: var(--ink); }
+.ar-edge.on.cyc .ar-line { stroke: var(--bad-ink); }
+.ar-edge.on.cyc .ar-arr { fill: var(--bad-ink); }
+.ar-node:focus-visible rect { stroke: var(--ready); stroke-width: 2.6; }
+.ar-edge:focus-visible .ar-line { stroke: var(--ready); stroke-width: 2.4; }
+.ar-node[data-link].hl rect { stroke: var(--ready); stroke-width: 2.6; }
+.ar-legend { display: flex; flex-wrap: wrap; gap: 2px 14px; margin: 6px 0 0; font-size: 11.5px; color: var(--ink-2); }
+.ar-legend span { display: inline-flex; align-items: center; gap: 5px; }
+.ar-legend svg { fill: none; stroke: currentColor; stroke-width: 1.2; stroke-linecap: round; stroke-linejoin: round; flex: none; }
+.ar-flag { margin: 8px 0 0; padding: 6px 10px; border-radius: var(--r-sm); background: var(--bad-soft); font-size: 12.5px; line-height: 1.65; }
+.ar-flag.f-up { background: var(--warn-soft); }
+.ar-flag b { margin-right: 8px; font-size: 11.5px; font-weight: 650; }
+/* 印の付いた線の見本（図の中の線と同じ色と破線） */
+.ar-smp { display: inline-block; width: 22px; margin-right: 8px; vertical-align: middle; border-top: 2px dashed var(--bad-ink); }
+.f-up .ar-smp { border-top-style: dotted; border-top-color: var(--warn-ink); }
+.ar-read { margin: 8px 0 0; min-height: 1.75em; font-size: 13px; line-height: 1.7; }
+.ar-read .rd { display: block; }
+.ar-read .rd::before { content: ""; display: inline-block; width: 9px; height: 9px; border-radius: 3px; margin-right: 7px; background: var(--ar-uses); }
+.ar-read .rd.usedby::before { background: var(--ar-usedby); }
+.ar-act { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+.ar-act .chip { cursor: pointer; }
+.ar-act .chip[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+.ar-list { margin-top: 8px; font-size: 13px; }
+.ar-list summary { cursor: pointer; font-size: 12.5px; color: var(--ink-2); }
+.ar-list ol { list-style: none; margin: 6px 0 0; padding: 0; display: grid; gap: 1px; }
+.ar-row { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0 8px; padding: 3px 8px; border-radius: var(--r-sm); transition: background-color var(--dur-hl) var(--ease); }
+.ar-row:focus-visible { outline: 2px solid var(--ready); outline-offset: -2px; }
+.ar-row i { font-style: normal; color: var(--ink-2); }
+.ar-row em { font-style: normal; font-size: 12px; color: var(--ink-2); }
+.ar-row small { margin-left: 6px; color: var(--bad-ink); }
+.ar-row.up small { color: var(--warn-ink); }
+.ar-row.on { background: color-mix(in oklch, var(--ready) 13%, transparent); }
+.ar-src { margin: 8px 0 0; font-size: 11.5px; line-height: 1.6; color: var(--ink-2); }
+
+/* フォルダとファイルの並び */
+.ft { font: 12.5px/1.75 var(--font-num); overflow-x: auto; }
+.ft ul { list-style: none; margin: 0; padding-left: 18px; border-left: 1px solid var(--line); }
+.ft > ul { border: 0; padding: 0; }
+.ft-n { display: inline-flex; align-items: baseline; gap: 12px; border: 1px solid transparent; background: none; border-radius: var(--r-sm); padding: 0 6px; font: inherit; text-align: left; white-space: nowrap; }
+.ft-n:hover { border-color: var(--line); background: var(--bg); }
+.ft-dir > .ft-name { font-weight: 600; }
+.ft-n small { font: 11.5px var(--font-body); color: var(--ink-2); white-space: normal; }
+
+/* 図を大きく見る窓 */
+#figZoom { width: min(1280px, 96vw); height: min(920px, 92vh); max-width: none; max-height: none; padding: 0; border: 0; border-radius: var(--r-lg); background: var(--bg); color: var(--ink); box-shadow: var(--shadow); overflow: hidden; }
+#figZoom[open] { display: flex; flex-direction: column; }
+#figZoom::backdrop { background: rgba(0, 0, 0, .35); }
+#figZoom .at-bar > .tiny { margin: 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fz-body { flex: 1; min-height: 0; display: flex; }
+.view.fz-fig { flex: 1; min-width: 0; margin: 0; padding: 0; border: 0; border-radius: 0; background: none; display: flex; }
+.fz-fig > .v-body { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; padding: 10px 18px 14px; }
+.fz-stage { flex: 1; min-height: 0; overflow: hidden !important; max-height: none !important; cursor: grab; touch-action: none; }
+.fz-drag .fz-stage { cursor: grabbing; }
+.fz-svg { display: block !important; width: 100% !important; height: 100% !important; max-width: none !important; }
+.fz-fig .ar-list, .fz-fig .pt-list, .fz-fig .ar-legend { display: none; }
+.fz-fig .ar-how, .fz-fig .ar-read, .fz-fig .ar-act, .fz-fig .ar-flag, .fz-fig .ar-src, .fz-fig .fl-case { flex: none; }
